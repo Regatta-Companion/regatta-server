@@ -282,7 +282,7 @@ async function loadRaces() {
   const seriesList = seriesRes.ok ? await seriesRes.json() : [];
   const racesList  = racesRes.ok  ? await racesRes.json()  : [];
 
-  // Losse wedstrijden (geen series_id)
+  // Losse wedstrijden: geen series_id (series_id is nu aanwezig in de response)
   const standalone = racesList.filter(r => !r.series_id);
 
   document.getElementById('races-loading').style.display = 'none';
@@ -308,11 +308,11 @@ async function loadRaces() {
         <span class="series-count">${s.race_count} wedstrijd(en)</span>
       </div>
       ${s.description ? `<p class="series-desc">${escapeHtml(s.description)}</p>` : ''}
-      <div class="series-races" id="series-races-${s.id}">
+      <div id="series-view-${s.id}">
         <div class="loading-row" style="padding:12px 0;"><span class="spinner" style="width:16px;height:16px;border-width:2px;"></span><span style="font-size:.85rem;">Laden…</span></div>
       </div>`;
     content.appendChild(section);
-    loadSeriesRaces(s.id);
+    loadSeriesView(s.id);
   }
 
   // Losse wedstrijden
@@ -322,23 +322,96 @@ async function loadRaces() {
     section.innerHTML = `<div class="series-header"><div><span class="series-name">Overige wedstrijden</span></div></div>`;
     const list = document.createElement('div');
     list.className = 'series-races';
-    for (const r of standalone) renderRaceRow(r, list);
+    for (const r of standalone) renderStandaloneRaceRow(r, list);
     section.appendChild(list);
     content.appendChild(section);
   }
 }
 
-async function loadSeriesRaces(seriesId) {
-  const res = await apiFetch(`/series/${seriesId}`);
-  const container = document.getElementById(`series-races-${seriesId}`);
-  if (!res.ok || !container) return;
-  const data = await res.json();
+// Laadt reeksklassen + wedstrijden voor een reeks in de Wedstrijden-tab
+async function loadSeriesView(seriesId) {
+  const container = document.getElementById(`series-view-${seriesId}`);
+  if (!container) return;
+
+  const [classesRes, seriesRes] = await Promise.all([
+    apiFetch(`/series/${seriesId}/classes`),
+    apiFetch(`/series/${seriesId}`),
+  ]);
+  const seriesClasses = classesRes.ok ? await classesRes.json() : [];
+  const seriesData    = seriesRes.ok  ? await seriesRes.json()  : { races: [] };
   container.innerHTML = '';
-  if (!data.races.length) {
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;padding:8px 0;">Nog geen wedstrijden gepland.</p>';
-    return;
+
+  // Toon reeksklassen met resultaten per wedstrijd
+  if (seriesClasses.length) {
+    for (const sc of seriesClasses) {
+      const classEl = document.createElement('div');
+      classEl.className = 'race-row-expandable';
+      classEl.innerHTML = `
+        <div class="race-row">
+          <div class="race-row-name" style="font-weight:600;">${escapeHtml(sc.name)}</div>
+          <div class="race-row-count">${sc.participant_count} deelnemer(s)</div>
+          <button class="btn btn-secondary btn-sm" data-scid="${sc.id}" data-sid="${seriesId}">Resultaten</button>
+        </div>
+        <div class="classes-view-panel" id="scview-${sc.id}" style="display:none;"></div>`;
+      classEl.querySelector('button').addEventListener('click', () => toggleSeriesClassResults(seriesId, sc.id));
+      container.appendChild(classEl);
+    }
   }
-  for (const r of data.races) renderRaceRow(r, container);
+
+  // Toon losse wedstrijden (zonder reeksklasse — eigen klassen)
+  const hasOwnClasses = seriesData.races.some(r => r.participant_count > 0);
+  if (seriesData.races.length) {
+    const racesWrap = document.createElement('div');
+    racesWrap.style.marginTop = seriesClasses.length ? '8px' : '0';
+    for (const r of seriesData.races) renderRaceRow(r, racesWrap);
+    container.appendChild(racesWrap);
+  }
+
+  if (!seriesClasses.length && !seriesData.races.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;padding:8px 0;">Nog geen wedstrijden of klassen gepland.</p>';
+  }
+}
+
+async function toggleSeriesClassResults(seriesId, classId) {
+  const panel = document.getElementById(`scview-${classId}`);
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<span style="color:var(--text-muted);font-size:.8rem;">Laden…</span>';
+
+  const res = await apiFetch(`/series/${seriesId}/classes/${classId}/tracks`);
+  const tracks = res.ok ? await res.json() : [];
+  panel.innerHTML = '';
+
+  if (!tracks.length) {
+    panel.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem;">Nog geen deelnemers.</p>'; return;
+  }
+
+  // Groepeer per wedstrijd
+  const byRace = {};
+  for (const t of tracks) {
+    if (!byRace[t.race_id]) byRace[t.race_id] = { name: t.race_name, date: t.race_date, tracks: [] };
+    byRace[t.race_id].tracks.push(t);
+  }
+  for (const [, race] of Object.entries(byRace)) {
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size:.8rem;color:var(--text-muted);padding:6px 8px 2px;font-weight:600;';
+    header.textContent = race.date ? formatRaceDate(race.date) : race.name;
+    panel.appendChild(header);
+
+    const table = document.createElement('div');
+    table.className = 'class-results';
+    race.tracks.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'class-result-row';
+      row.innerHTML = `
+        <span class="result-pos">${i+1}</span>
+        <span class="result-email">${escapeHtml(t.user_email)}</span>
+        <span class="result-speed">${formatSpeed(t.avg_speed_knots)}</span>
+        <span class="result-dist">${formatDistance(t.distance_meters)}</span>`;
+      table.appendChild(row);
+    });
+    panel.appendChild(table);
+  }
 }
 
 function renderRaceRow(r, container) {
@@ -352,11 +425,13 @@ function renderRaceRow(r, container) {
       <button class="btn btn-secondary btn-sm toggle-classes-view-btn" data-race="${r.id}">Klassen</button>
     </div>
     <div class="classes-view-panel" id="classes-view-${r.id}" style="display:none;"></div>`;
-  wrap.querySelector('.toggle-classes-view-btn').addEventListener('click', () => toggleClassesView(r.id));
+  wrap.querySelector('.toggle-classes-view-btn').addEventListener('click', () => toggleRaceClassesView(r.id));
   container.appendChild(wrap);
 }
 
-async function toggleClassesView(raceId) {
+function renderStandaloneRaceRow(r, container) { renderRaceRow(r, container); }
+
+async function toggleRaceClassesView(raceId) {
   const panel = document.getElementById(`classes-view-${raceId}`);
   if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
@@ -373,13 +448,8 @@ async function toggleClassesView(raceId) {
   for (const c of classes) {
     const el = document.createElement('div');
     el.className = 'class-row';
-    el.innerHTML = `
-      <div class="class-info">
-        <span class="class-name">${escapeHtml(c.name)}</span>
-        <span class="class-count">${c.participant_count} deelnemer(s)</span>
-      </div>`;
+    el.innerHTML = `<div class="class-info"><span class="class-name">${escapeHtml(c.name)}</span><span class="class-count">${c.participant_count} deelnemer(s)</span></div>`;
     panel.appendChild(el);
-    // Laad deelnemers per klasse
     if (c.participant_count > 0) {
       const tracksRes = await apiFetch(`/races/${raceId}/classes/${c.id}/tracks`);
       if (tracksRes.ok) {
@@ -389,11 +459,7 @@ async function toggleClassesView(raceId) {
         tracks.forEach((t, i) => {
           const row = document.createElement('div');
           row.className = 'class-result-row';
-          row.innerHTML = `
-            <span class="result-pos">${i+1}</span>
-            <span class="result-email">${escapeHtml(t.user_email)}</span>
-            <span class="result-speed">${formatSpeed(t.avg_speed_knots)}</span>
-            <span class="result-dist">${formatDistance(t.distance_meters)}</span>`;
+          row.innerHTML = `<span class="result-pos">${i+1}</span><span class="result-email">${escapeHtml(t.user_email)}</span><span class="result-speed">${formatSpeed(t.avg_speed_knots)}</span><span class="result-dist">${formatDistance(t.distance_meters)}</span>`;
           table.appendChild(row);
         });
         panel.appendChild(table);
@@ -444,29 +510,91 @@ function renderAdminSeries() {
           ${s.season ? `<span class="series-season">${escapeHtml(s.season)}</span>` : ''}
           <span style="color:var(--text-muted);font-size:.8rem;margin-left:8px;">${s.race_count} wedstrijd(en)</span>
         </div>
-        <button class="race-card-delete" title="Reeks verwijderen" data-id="${s.id}">
+        <button class="race-card-delete" title="Reeks verwijderen">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
             <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
           </svg>
         </button>
       </div>
-      <!-- Wedstrijd toevoegen aan reeks -->
+
+      <!-- Reeksklassen (één code per klasse, geldig voor alle wedstrijden) -->
+      <div style="margin:10px 0 4px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Reeksklassen</div>
+      <div class="admin-series-classes" id="admin-sc-${s.id}">
+        <div class="loading-row" style="padding:4px 0;"><span class="spinner" style="width:12px;height:12px;border-width:2px;"></span></div>
+      </div>
+      <div class="add-race-row" style="margin-top:6px;">
+        <input type="text" class="add-sc-name" placeholder="Naam klasse, bijv. Laser" />
+        <button class="btn btn-secondary btn-sm add-sc-btn">+ Klasse toevoegen</button>
+      </div>
+
+      <!-- Wedstrijden in reeks -->
+      <div style="margin:14px 0 4px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);letter-spacing:.05em;">Wedstrijden</div>
       <div class="add-race-row">
         <input type="text" class="add-race-name" placeholder="Naam wedstrijd" />
         <input type="date" class="add-race-date" />
-        <button class="btn btn-secondary btn-sm add-race-btn" data-series="${s.id}">+ Toevoegen</button>
+        <button class="btn btn-secondary btn-sm add-race-btn">+ Toevoegen</button>
       </div>
-      <!-- Wedstrijden in reeks -->
       <div class="series-races-admin" id="admin-series-races-${s.id}">
         <div class="loading-row" style="padding:8px 0;"><span class="spinner" style="width:14px;height:14px;border-width:2px;"></span></div>
       </div>`;
 
     el.querySelector('.race-card-delete').addEventListener('click', () => deleteSeries(s.id, s.name));
     el.querySelector('.add-race-btn').addEventListener('click', () => addRaceToSeries(s.id, el));
+    el.querySelector('.add-sc-btn').addEventListener('click', () => addSeriesClass(s.id, el));
     list.appendChild(el);
     loadAdminSeriesRaces(s.id);
+    loadAdminSeriesClasses(s.id);
   }
+}
+
+async function loadAdminSeriesClasses(seriesId) {
+  const res = await apiFetch(`/series/${seriesId}/classes`);
+  const container = document.getElementById(`admin-sc-${seriesId}`);
+  if (!container) return;
+  const classes = res.ok ? await res.json() : [];
+  container.innerHTML = '';
+  if (!classes.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem;">Nog geen reeksklassen.</p>'; return;
+  }
+  for (const c of classes) {
+    const row = document.createElement('div');
+    row.className = 'class-row';
+    row.innerHTML = `
+      <div class="class-info">
+        <span class="class-name">${escapeHtml(c.name)}</span>
+        <span class="class-code" title="Klik om te kopiëren">${c.code}</span>
+        <span class="class-count">${c.participant_count} deelnemer(s)</span>
+      </div>
+      <button class="race-card-delete btn-xs" title="Klasse verwijderen">✕</button>`;
+    row.querySelector('.class-code').addEventListener('click', () => {
+      navigator.clipboard.writeText(c.code);
+      showToast(`Code ${c.code} gekopieerd`, 'success');
+    });
+    row.querySelector('.race-card-delete').addEventListener('click', async () => {
+      if (!confirm(`Reeksklasse "${c.name}" verwijderen?`)) return;
+      await apiFetch(`/series-classes/${c.id}`, { method: 'DELETE' });
+      loadAdminSeriesClasses(seriesId);
+    });
+    container.appendChild(row);
+  }
+}
+
+async function addSeriesClass(seriesId, cardEl) {
+  const input = cardEl.querySelector('.add-sc-name');
+  const name = input.value.trim();
+  if (!name) { showToast('Naam is verplicht.', 'error'); return; }
+  const btn = cardEl.querySelector('.add-sc-btn');
+  btn.disabled = true;
+  const res = await apiFetch(`/series/${seriesId}/classes`, {
+    method: 'POST', body: JSON.stringify({ name }),
+  });
+  btn.disabled = false;
+  if (!res.ok) { showToast((await res.json()).error || 'Aanmaken mislukt.', 'error'); return; }
+  const { code } = await res.json();
+  input.value = '';
+  showToast(`Reeksklasse aangemaakt — code: ${code}`, 'success');
+  loadAdminSeriesClasses(seriesId);
 }
 
 async function loadAdminSeriesRaces(seriesId) {
@@ -489,12 +617,12 @@ async function loadAdminSeriesRaces(seriesId) {
         <button class="btn btn-secondary btn-sm toggle-classes-btn" data-race="${r.id}">Klassen</button>
       </div>
       <div class="classes-panel" id="classes-panel-${r.id}" style="display:none;"></div>`;
-    row.querySelector('.toggle-classes-btn').addEventListener('click', () => toggleClasses(r.id));
+    row.querySelector('.toggle-classes-btn').addEventListener('click', () => toggleRaceClassesAdmin(r.id));
     container.appendChild(row);
   }
 }
 
-async function toggleClasses(raceId) {
+async function toggleRaceClassesAdmin(raceId) {
   const panel = document.getElementById(`classes-panel-${raceId}`);
   if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
@@ -504,7 +632,6 @@ async function toggleClasses(raceId) {
   const classes = res.ok ? await res.json() : [];
   panel.innerHTML = '';
 
-  // Klassen tonen
   if (classes.length) {
     for (const c of classes) {
       const el = document.createElement('div');
@@ -515,7 +642,7 @@ async function toggleClasses(raceId) {
           <span class="class-code" title="Klik om te kopiëren">${c.code}</span>
           <span class="class-count">${c.participant_count} deelnemer(s)</span>
         </div>
-        <button class="race-card-delete btn-xs" title="Klasse verwijderen" data-id="${c.id}">✕</button>`;
+        <button class="race-card-delete btn-xs" title="Klasse verwijderen">✕</button>`;
       el.querySelector('.class-code').addEventListener('click', () => {
         navigator.clipboard.writeText(c.code);
         showToast(`Code ${c.code} gekopieerd`, 'success');
@@ -523,15 +650,18 @@ async function toggleClasses(raceId) {
       el.querySelector('.race-card-delete').addEventListener('click', async () => {
         if (!confirm(`Klasse "${c.name}" verwijderen?`)) return;
         await apiFetch(`/classes/${c.id}`, { method: 'DELETE' });
-        toggleClasses(raceId); toggleClasses(raceId); // refresh
+        panel.style.display = 'none';
+        toggleRaceClassesAdmin(raceId);
       });
       panel.appendChild(el);
     }
   } else {
-    panel.innerHTML = '<p style="color:var(--text-muted);font-size:.8rem;margin-bottom:8px;">Nog geen klassen.</p>';
+    const empty = document.createElement('p');
+    empty.style.cssText = 'color:var(--text-muted);font-size:.8rem;margin-bottom:8px;';
+    empty.textContent = 'Nog geen klassen.';
+    panel.appendChild(empty);
   }
 
-  // Klasse toevoegen
   const addRow = document.createElement('div');
   addRow.className = 'add-race-row';
   addRow.innerHTML = `
@@ -545,7 +675,7 @@ async function toggleClasses(raceId) {
     const { code } = await r.json();
     showToast(`Klasse aangemaakt — code: ${code}`, 'success');
     panel.style.display = 'none';
-    toggleClasses(raceId);
+    toggleRaceClassesAdmin(raceId);
   });
   panel.appendChild(addRow);
 }
@@ -564,9 +694,8 @@ async function addRaceToSeries(seriesId, cardEl) {
   cardEl.querySelector('.add-race-name').value = '';
   cardEl.querySelector('.add-race-date').value = '';
   showToast('Wedstrijd toegevoegd.', 'success');
+  // Alleen de racelijst voor deze reeks verversen (geen volledige re-render)
   loadAdminSeriesRaces(seriesId);
-  // Update teller
-  await loadAdminSeries();
 }
 
 async function deleteSeries(id, name) {

@@ -13,8 +13,9 @@ function generateCode(db) {
     for (let i = 0; i < 6; i++) {
       code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
     }
-    const existing = db.prepare('SELECT id FROM classes WHERE code = ?').get(code);
-    if (!existing) return code;
+    const inClasses = db.prepare('SELECT id FROM classes WHERE code = ?').get(code);
+    const inSeries  = db.prepare('SELECT id FROM series_classes WHERE code = ?').get(code);
+    if (!inClasses && !inSeries) return code;
   }
   throw new Error('Kon geen unieke code genereren.');
 }
@@ -24,7 +25,7 @@ function createClassesRouter(db) {
   router.use((req, res, next) => { req.db = db; next(); });
   router.use(authMiddleware);
 
-  // ── POST /api/races/:raceId/classes — admin maakt klasse aan ─────────────
+  // ── POST /api/races/:raceId/classes — admin maakt klasse aan per wedstrijd ─
   router.post('/races/:raceId/classes', adminMiddleware, (req, res) => {
     const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.raceId);
     if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
@@ -54,7 +55,7 @@ function createClassesRouter(db) {
     return res.json(classes);
   });
 
-  // ── DELETE /api/classes/:id — admin verwijdert klasse ────────────────────
+  // ── DELETE /api/classes/:id — admin verwijdert race-klasse ───────────────
   router.delete('/classes/:id', adminMiddleware, (req, res) => {
     const cls = db.prepare('SELECT id FROM classes WHERE id = ?').get(req.params.id);
     if (!cls) return res.status(404).json({ error: 'Klasse niet gevonden.' });
@@ -62,19 +63,97 @@ function createClassesRouter(db) {
     return res.json({ ok: true });
   });
 
-  // ── GET /api/join/:code — code opzoeken, geeft wedstrijd+klasse terug ─────
+  // ── POST /api/series/:seriesId/classes — admin maakt reeksklasse aan ─────
+  router.post('/series/:seriesId/classes', adminMiddleware, (req, res) => {
+    const series = db.prepare('SELECT id FROM series WHERE id = ?').get(req.params.seriesId);
+    if (!series) return res.status(404).json({ error: 'Reeks niet gevonden.' });
+
+    const { name } = req.body || {};
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
+
+    const code = generateCode(db);
+    const result = db.prepare(
+      'INSERT INTO series_classes (series_id, name, code, created_by) VALUES (?, ?, ?, ?)'
+    ).run(req.params.seriesId, name.trim(), code, req.userId);
+
+    return res.status(201).json({ id: result.lastInsertRowid, code });
+  });
+
+  // ── GET /api/series/:seriesId/classes — reeksklassen met deelnemerstelling ─
+  router.get('/series/:seriesId/classes', (req, res) => {
+    const classes = db.prepare(`
+      SELECT sc.id, sc.name, sc.code,
+             COUNT(DISTINCT rt.track_id) AS participant_count
+      FROM series_classes sc
+      LEFT JOIN race_tracks rt ON rt.series_class_id = sc.id
+      WHERE sc.series_id = ?
+      GROUP BY sc.id
+      ORDER BY sc.name ASC
+    `).all(req.params.seriesId);
+    return res.json(classes);
+  });
+
+  // ── DELETE /api/series-classes/:id — admin verwijdert reeksklasse ─────────
+  router.delete('/series-classes/:id', adminMiddleware, (req, res) => {
+    const cls = db.prepare('SELECT id FROM series_classes WHERE id = ?').get(req.params.id);
+    if (!cls) return res.status(404).json({ error: 'Reeksklasse niet gevonden.' });
+    db.prepare('DELETE FROM series_classes WHERE id = ?').run(req.params.id);
+    return res.json({ ok: true });
+  });
+
+  // ── GET /api/series/:seriesId/classes/:classId/tracks — resultaten per reeksklasse
+  router.get('/series/:seriesId/classes/:classId/tracks', (req, res) => {
+    const cls = db.prepare(
+      'SELECT id FROM series_classes WHERE id = ? AND series_id = ?'
+    ).get(req.params.classId, req.params.seriesId);
+    if (!cls) return res.status(404).json({ error: 'Reeksklasse niet gevonden.' });
+
+    const tracks = db.prepare(`
+      SELECT t.id, t.name, t.recorded_at, t.duration_seconds, t.distance_meters,
+             t.max_speed_knots, t.avg_speed_knots, t.point_count,
+             r.id AS race_id, r.name AS race_name, r.race_date,
+             u.email AS user_email, rt.linked_at
+      FROM race_tracks rt
+      JOIN tracks t ON t.id = rt.track_id
+      JOIN races r  ON r.id = rt.race_id
+      JOIN users u  ON u.id = rt.user_id
+      WHERE rt.series_class_id = ?
+      ORDER BY r.race_date ASC, t.avg_speed_knots DESC
+    `).all(req.params.classId);
+
+    return res.json(tracks);
+  });
+
+  // ── GET /api/join/:code — code opzoeken (race of reeks) ──────────────────
   router.get('/join/:code', (req, res) => {
-    const row = db.prepare(`
+    const code = req.params.code.toUpperCase();
+
+    // Check reeksklasse eerst
+    const seriesRow = db.prepare(`
+      SELECT sc.id AS class_id, sc.name AS class_name, sc.code,
+             s.id AS series_id, s.name AS series_name, s.season,
+             null AS race_id, null AS race_name, null AS race_date,
+             'series' AS code_type
+      FROM series_classes sc
+      JOIN series s ON s.id = sc.series_id
+      WHERE sc.code = ?
+    `).get(code);
+    if (seriesRow) return res.json(seriesRow);
+
+    // Check wedstrijdklasse
+    const raceRow = db.prepare(`
       SELECT c.id AS class_id, c.name AS class_name, c.code,
              r.id AS race_id, r.name AS race_name, r.race_date,
-             s.name AS series_name
+             s.name AS series_name,
+             'race' AS code_type
       FROM classes c
       JOIN races r ON r.id = c.race_id
       LEFT JOIN series s ON s.id = r.series_id
       WHERE c.code = ?
-    `).get(req.params.code.toUpperCase());
-    if (!row) return res.status(404).json({ error: 'Onbekende code.' });
-    return res.json(row);
+    `).get(code);
+    if (raceRow) return res.json(raceRow);
+
+    return res.status(404).json({ error: 'Onbekende code.' });
   });
 
   // ── POST /api/join — track koppelen via code ──────────────────────────────
@@ -82,35 +161,81 @@ function createClassesRouter(db) {
     const { code, track_id } = req.body || {};
     if (!code || !track_id) return res.status(400).json({ error: 'code en track_id zijn verplicht.' });
 
-    const cls = db.prepare(`
-      SELECT c.id AS class_id, c.race_id
-      FROM classes c WHERE c.code = ?
-    `).get(code.toUpperCase());
-    if (!cls) return res.status(404).json({ error: 'Onbekende code.' });
+    const upperCode = code.toUpperCase();
 
     // Track moet van deze gebruiker zijn
-    const track = db.prepare('SELECT id FROM tracks WHERE id = ? AND user_id = ?').get(track_id, req.userId);
+    const track = db.prepare(
+      'SELECT id, recorded_at FROM tracks WHERE id = ? AND user_id = ?'
+    ).get(track_id, req.userId);
     if (!track) return res.status(404).json({ error: 'Track niet gevonden.' });
 
-    // Al gekoppeld aan deze wedstrijd?
+    // ── Reeksklasse? ──────────────────────────────────────────────────────────
+    const seriesCls = db.prepare(
+      'SELECT id, series_id FROM series_classes WHERE code = ?'
+    ).get(upperCode);
+
+    if (seriesCls) {
+      // Zoek de wedstrijd in de reeks die het dichtst bij de opnamedatum ligt
+      const races = db.prepare(
+        'SELECT id, race_date FROM races WHERE series_id = ? ORDER BY race_date ASC'
+      ).all(seriesCls.series_id);
+
+      if (!races.length) {
+        return res.status(400).json({ error: 'Geen wedstrijden in deze reeks.' });
+      }
+
+      const trackTime = track.recorded_at ? new Date(track.recorded_at).getTime() : null;
+      let bestRace = races[0];
+      if (trackTime) {
+        let bestDiff = Infinity;
+        for (const r of races) {
+          if (!r.race_date) continue;
+          const diff = Math.abs(new Date(r.race_date).getTime() - trackTime);
+          if (diff < bestDiff) { bestDiff = diff; bestRace = r; }
+        }
+      }
+
+      const existing = db.prepare(
+        'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ?'
+      ).get(bestRace.id, track_id);
+
+      if (existing) {
+        db.prepare(
+          'UPDATE race_tracks SET series_class_id = ?, class_id = NULL WHERE race_id = ? AND track_id = ?'
+        ).run(seriesCls.id, bestRace.id, track_id);
+        return res.json({ ok: true, updated: true });
+      }
+
+      db.prepare(
+        'INSERT INTO race_tracks (race_id, track_id, user_id, series_class_id) VALUES (?, ?, ?, ?)'
+      ).run(bestRace.id, track_id, req.userId, seriesCls.id);
+      return res.status(201).json({ ok: true });
+    }
+
+    // ── Wedstrijdklasse ───────────────────────────────────────────────────────
+    const cls = db.prepare(
+      'SELECT id AS class_id, race_id FROM classes WHERE code = ?'
+    ).get(upperCode);
+    if (!cls) return res.status(404).json({ error: 'Onbekende code.' });
+
     const existing = db.prepare(
       'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ?'
     ).get(cls.race_id, track_id);
+
     if (existing) {
-      // Update klasse als die nog niet ingesteld was
-      db.prepare('UPDATE race_tracks SET class_id = ? WHERE race_id = ? AND track_id = ?')
-        .run(cls.class_id, cls.race_id, track_id);
+      db.prepare(
+        'UPDATE race_tracks SET class_id = ?, series_class_id = NULL WHERE race_id = ? AND track_id = ?'
+      ).run(cls.class_id, cls.race_id, track_id);
       return res.json({ ok: true, updated: true });
     }
 
     db.prepare(
       'INSERT INTO race_tracks (race_id, track_id, user_id, class_id) VALUES (?, ?, ?, ?)'
     ).run(cls.race_id, track_id, req.userId, cls.class_id);
-
     return res.status(201).json({ ok: true });
   });
 
-  // ── GET /api/races/:raceId/classes/:classId/tracks — resultaten per klasse
+  // ── GET /api/races/:raceId/classes/:classId/tracks — resultaten per wedstrijdklasse
   router.get('/races/:raceId/classes/:classId/tracks', (req, res) => {
     const cls = db.prepare(
       'SELECT id FROM classes WHERE id = ? AND race_id = ?'

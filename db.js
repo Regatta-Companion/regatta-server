@@ -71,10 +71,21 @@ function initDb(dbPath) {
     );
   `);
 
+  // Series-level classes (one code per class, valid for all races in the series)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS series_classes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      series_id  INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+      name       TEXT    NOT NULL,
+      code       TEXT    NOT NULL UNIQUE,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
   // Migrations
-  try {
-    db.exec(`ALTER TABLE tracks ADD COLUMN original_filename TEXT`);
-  } catch (_) {}
+  try { db.exec(`ALTER TABLE tracks ADD COLUMN original_filename TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE race_tracks ADD COLUMN series_class_id INTEGER REFERENCES series_classes(id) ON DELETE SET NULL`); } catch (_) {}
 
   return db;
 }

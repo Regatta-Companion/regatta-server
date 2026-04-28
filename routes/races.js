@@ -30,7 +30,7 @@ function createRacesRouter(db, tracksDir) {
   // ── GET / — list all races ─────────────────────────────────────────────────
   router.get('/', (req, res) => {
     const races = db.prepare(
-      `SELECT r.id, r.name, r.description, r.race_date, r.created_at,
+      `SELECT r.id, r.name, r.description, r.race_date, r.series_id, r.created_at,
               u.email AS created_by_email,
               COUNT(rt.track_id) AS participant_count
        FROM races r
