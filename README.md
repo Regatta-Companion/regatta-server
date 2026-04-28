@@ -31,8 +31,7 @@ npm install --omit=dev
 mkdir -p data/tracks
 
 # 6. JWT secret aanmaken
-node -e "require('crypto').randomBytes(48).toString('hex')" \
-  | xargs -I{} sh -c 'echo "JWT_SECRET={}" > .env'
+echo "JWT_SECRET=$(node -e "process.stdout.write(require('crypto').randomBytes(48).toString('hex'))")" > .env
 
 # 7. Server starten via PM2
 pm2 start server.js --name regatta-server --env production
@@ -73,6 +72,11 @@ apk add --no-cache nodejs npm git
 # 2. PM2 globaal installeren
 npm install -g pm2
 
+# Alpine zet npm global binaries in /usr/local/bin — zorg dat dit in PATH staat
+export PATH="/usr/local/bin:$PATH"
+# Voeg dit ook permanent toe:
+echo 'export PATH="/usr/local/bin:$PATH"' >> /etc/profile.d/npm-global.sh
+
 # 3. Repository klonen
 git clone https://github.com/FutureCow/regatta-server.git /opt/regatta-server
 cd /opt/regatta-server
@@ -83,9 +87,8 @@ npm install --omit=dev
 # 5. Data-map aanmaken
 mkdir -p data/tracks
 
-# 6. JWT secret aanmaken
-node -e "require('crypto').randomBytes(48).toString('hex')" \
-  | xargs -I{} sh -c 'echo "JWT_SECRET={}" > .env'
+# 6. JWT secret aanmaken (busybox-compatibel)
+echo "JWT_SECRET=$(node -e "process.stdout.write(require('crypto').randomBytes(48).toString('hex'))")" > .env
 
 # 7. Server starten via PM2
 pm2 start server.js --name regatta-server
