@@ -10,13 +10,25 @@ echo "==> Regatta Server updaten in $INSTALL_DIR"
 
 # ── 1. Nieuwste code ophalen ──────────────────────────────────────────────────
 echo "--> git pull..."
-git pull origin master
+git pull origin master --tags
 
-# ── 2. Dependencies bijwerken ─────────────────────────────────────────────────
+# ── 2. Versie uit git tag schrijven naar package.json ─────────────────────────
+GIT_VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
+if [ -n "$GIT_VERSION" ]; then
+  echo "--> versie instellen op $GIT_VERSION..."
+  node -e "
+    const fs = require('fs');
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    pkg.version = '$GIT_VERSION';
+    fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+  "
+fi
+
+# ── 3. Dependencies bijwerken ─────────────────────────────────────────────────
 echo "--> npm install..."
 npm install --omit=dev
 
-# ── 3. Database migraties uitvoeren ───────────────────────────────────────────
+# ── 4. Database migraties uitvoeren ───────────────────────────────────────────
 echo "--> database migraties..."
 node - <<'JS'
 const { DatabaseSync } = require('node:sqlite');
@@ -59,7 +71,7 @@ db.exec("PRAGMA foreign_keys = ON");
 console.log('  Migraties voltooid.');
 JS
 
-# ── 4. PM2 herstarten ─────────────────────────────────────────────────────────
+# ── 5. PM2 herstarten ─────────────────────────────────────────────────────────
 echo "--> PM2 herstarten..."
 if pm2 describe regatta-server > /dev/null 2>&1; then
   pm2 restart regatta-server
