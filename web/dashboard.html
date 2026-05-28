@@ -264,6 +264,14 @@
     }
     .track-card .btn-del:hover { border-color: var(--red); color: var(--red); }
 
+    .btn-join {
+      padding: 5px 10px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
+    }
+    .btn-join:hover { border-color: var(--accent); color: var(--accent); }
+
+    .join-inline { display: inline-flex; gap: 4px; align-items: center; }
+
     @media (max-width: 640px) {
       .track-grid { grid-template-columns: 1fr; }
     }
@@ -533,6 +541,11 @@
               <div class="track-stat"><div class="ts-val">${dur}</div><div class="ts-lbl">Duur</div></div>
             </div>
             <div class="track-actions">
+              <button class="btn-join" onclick="event.stopPropagation();showJoinInput(this)" data-track-id="${t.id}">🔗 Koppelen</button>
+              <span class="join-inline" style="display:none">
+                <input class="join-input" placeholder="Deelnamecode" style="width:120px;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
+                <button class="btn-join-go" style="padding:4px 10px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">OK</button>
+              </span>
               <button class="btn-del" onclick="event.stopPropagation();deleteTrackClicked(this)">Verwijder</button>
             </div>
           </div>`;
@@ -556,6 +569,48 @@
         renderTracks(tracks);
       } catch (e) {
         alert('Verwijderen mislukt: ' + e.message);
+      }
+    }
+
+    async function showJoinInput(btn) {
+      const card = btn.closest('.track-card');
+      const inline = card.querySelector('.join-inline');
+      const joinBtn = card.querySelector('.btn-join');
+      const input = card.querySelector('.join-input');
+      const goBtn = card.querySelector('.btn-join-go');
+
+      if (inline.style.display === 'none' || !inline.style.display) {
+        inline.style.display = 'inline-flex';
+        joinBtn.style.display = 'none';
+        input.value = '';
+        input.focus();
+        goBtn.onclick = async () => {
+          const code = input.value.trim().toUpperCase();
+          if (!code) return;
+          const trackId = parseInt(card.dataset.trackId);
+          try {
+            const res = await fetch(API + '/join', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getToken(),
+              },
+              body: JSON.stringify({ code, track_id: trackId }),
+            });
+            if (!res.ok) {
+              const data = await res.json();
+              throw new Error(data.error || 'Mislukt');
+            }
+            alert('Track gekoppeld!');
+            inline.style.display = 'none';
+            joinBtn.style.display = '';
+          } catch (e) {
+            alert('Koppelen mislukt: ' + (e.message || 'onbekende fout'));
+          }
+        };
+      } else {
+        inline.style.display = 'none';
+        joinBtn.style.display = '';
       }
     }
 
