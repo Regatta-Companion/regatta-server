@@ -113,15 +113,9 @@ function renderHeader(title) {
       <a href="dashboard.html" class="${title === 'dashboard' ? 'active' : ''}">Wedstrijden</a>
       <a href="race.html" class="${title === 'race' ? 'active' : ''}">Race</a>
       <a href="race-compare.html" class="${title === 'compare' ? 'active' : ''}">Vergelijk</a>
-      <a href="info.html" class="${title === 'info' ? 'active' : ''}" style="font-size:14px;opacity:0.7" title="Uitleg">?</a>
       <a href="admin.html" class="${title === 'admin' ? 'active' : ''}" style="${isAdmin ? '' : 'display:none'}">Beheer</a>
     </div>
     <div class="user-menu">
-      ${isAdmin ? `<a href="admin.html" class="admin-gear" title="Beheer">
-         <svg id="admin-gear-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" width="18" height="18">
-           <circle cx="10" cy="10" r="3"/><path d="M10 1.5v2M10 16.5v2M18.5 10h-2M3.5 10h-2M15.9 4.1l-1.4 1.4M5.5 14.5l-1.4 1.4M15.9 15.9l-1.4-1.4M5.5 5.5L4.1 4.1"/>
-         </svg>
-       </a>` : ''}
       <span class="email">${email || ''}</span>
       <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Uitloggen</button>
     </div>
