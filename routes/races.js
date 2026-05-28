@@ -27,18 +27,20 @@ function createRacesRouter(db, tracksDir) {
     return res.status(201).json({ id: result.lastInsertRowid });
   });
 
-  // ── GET / — list all races ─────────────────────────────────────────────────
+  // ── GET / — list races relevant to the authenticated user ──────────────────
   router.get('/', (req, res) => {
     const races = db.prepare(
       `SELECT r.id, r.name, r.description, r.race_date, r.series_id, r.created_at,
-              u.email AS created_by_email,
-              COUNT(rt.track_id) AS participant_count
+              s.id AS series_id_val, s.name AS series_name, s.season AS series_season,
+              COUNT(rt2.track_id) AS participant_count,
+              COUNT(CASE WHEN rt2.user_id = ? THEN 1 END) AS my_track_count
        FROM races r
-       JOIN users u ON u.id = r.created_by
-       LEFT JOIN race_tracks rt ON rt.race_id = r.id
+       JOIN race_tracks rt ON rt.race_id = r.id AND rt.user_id = ?
+       LEFT JOIN series s ON s.id = r.series_id
+       LEFT JOIN race_tracks rt2 ON rt2.race_id = r.id
        GROUP BY r.id
-       ORDER BY r.race_date DESC, r.created_at DESC`
-    ).all();
+       ORDER BY s.name ASC, r.race_date ASC`
+    ).all(req.userId, req.userId);
     return res.json(races);
   });
 

@@ -468,21 +468,57 @@
               <path d="M10 25h8"/>
             </svg>
             <h3>Nog geen wedstrijden</h3>
-            <p>Zodra je een race-track uploadt via de Regatta Screen app, verschijnt die hier.</p>
+            <p>Voer een deelnamecode in bij een track om hier wedstrijden te zien.</p>
           </div>`;
         return;
       }
 
-      container.innerHTML = list.map(r => {
-        const name = r.name || r.label || 'Race #' + r.id;
-        const date = fmtDate(r.created_at || r.date);
-        const time = fmtTime(r.created_at);
-        const trackCount = r.track_count || '—';
-        return `
+      // Group by series
+      const bySeries = {};
+      const standalone = [];
+      list.forEach(r => {
+        if (r.series_name) {
+          const key = r.series_name + (r.series_season ? ' · ' + r.series_season : '');
+          if (!bySeries[key]) bySeries[key] = [];
+          bySeries[key].push(r);
+        } else {
+          standalone.push(r);
+        }
+      });
+
+      let html = '';
+
+      Object.keys(bySeries).sort().forEach(sname => {
+        html += `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);padding:16px 0 4px">${escHtml(sname)}</div>`;
+        bySeries[sname].forEach(r => {
+          const date = r.race_date ? fmtDate(r.race_date) : '—';
+          const trackCount = r.participant_count || '—';
+          const myCount = r.my_track_count || 0;
+          html += `
+            <div class="race-item" onclick="openRace(${r.id})">
+              <div class="race-info">
+                <div class="race-name">${escHtml(r.name)}</div>
+                <div class="race-meta">${date}${myCount > 0 ? ' · ' + myCount + ' van jou' : ''}</div>
+              </div>
+              <div class="race-stats">
+                <div class="race-stat">
+                  <div class="val">${trackCount}</div>
+                  <div class="lbl">boten</div>
+                </div>
+              </div>
+              <div class="race-arrow">→</div>
+            </div>`;
+        });
+      });
+
+      standalone.forEach(r => {
+        const date = r.race_date ? fmtDate(r.race_date) : '—';
+        const trackCount = r.participant_count || '—';
+        html += `
           <div class="race-item" onclick="openRace(${r.id})">
             <div class="race-info">
-              <div class="race-name">${escHtml(name)}</div>
-              <div class="race-meta">${date} · ${time}</div>
+              <div class="race-name">${escHtml(r.name)}</div>
+              <div class="race-meta">${date}</div>
             </div>
             <div class="race-stats">
               <div class="race-stat">
@@ -491,9 +527,10 @@
               </div>
             </div>
             <div class="race-arrow">→</div>
-          </div>
-        `;
-      }).join('');
+          </div>`;
+      });
+
+      container.innerHTML = html;
     }
 
     function openRace(id) {
