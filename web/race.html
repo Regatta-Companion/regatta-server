@@ -466,6 +466,62 @@
       }
     }
 
+    function renderBoatList(raceTracks) {
+      // Group tracks by class
+      const groups = {};
+      const ungrouped = [];
+      (raceTracks || []).forEach((t, i) => {
+        t._origIdx = i;
+        const clsName = t.series_class_name || t.class_name;
+        if (clsName) {
+          if (!groups[clsName]) groups[clsName] = [];
+          groups[clsName].push(t);
+        } else {
+          ungrouped.push(t);
+        }
+      });
+
+      let html = '';
+      const groupNames = Object.keys(groups).sort();
+
+      groupNames.forEach(gname => {
+        html += `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);padding:10px 0 4px">${escHtml(gname)}</div>`;
+        groups[gname].forEach((t, j) => {
+          const i = t._origIdx;
+          html += `
+            <div class="boat-item ${i === 0 ? 'active-boat' : ''}" data-idx="${i}">
+              <div class="boat-color" style="background:${BOAT_COLORS[i % BOAT_COLORS.length]}"></div>
+              <div class="boat-info">
+                <div class="boat-name">${escHtml(t.name || t.filename || 'Boot ' + (i+1))}</div>
+                <div class="boat-meta">${escHtml(t.user_email || '')}${t.point_count ? ' · ' + t.point_count + ' punten' : ''}</div>
+              </div>
+              <div class="boat-stats">
+                <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
+                <div class="boat-s"><div class="v">${t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) : '—'} kn</div><div class="l">max</div></div>
+              </div>
+            </div>`;
+        });
+      });
+
+      ungrouped.forEach((t, j) => {
+        const i = t._origIdx;
+        html += `
+          <div class="boat-item ${i === 0 ? 'active-boat' : ''}" data-idx="${i}">
+            <div class="boat-color" style="background:${BOAT_COLORS[i % BOAT_COLORS.length]}"></div>
+            <div class="boat-info">
+              <div class="boat-name">${escHtml(t.name || t.filename || 'Boot ' + (i+1))}</div>
+              <div class="boat-meta">${escHtml(t.user_email || '')}${t.point_count ? ' · ' + t.point_count + ' punten' : ''}</div>
+            </div>
+            <div class="boat-stats">
+              <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
+              <div class="boat-s"><div class="v">${t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) : '—'} kn</div><div class="l">max</div></div>
+            </div>
+          </div>`;
+      });
+
+      return html || '<div style="color:var(--muted);font-size:12px;padding:8px 0">Nog geen boten.</div>';
+    }
+
     function buildRaceHTML(race, raceTracks) {
       const date = fmtDate(race.created_at || race.date);
       const trackCount = (raceTracks || []).length;
@@ -511,18 +567,7 @@
             <div class="info-panel">
               <h4>Boten in deze race</h4>
               <div class="boat-list" id="boat-list">
-                ${(raceTracks || []).map((t, i) => {
-                  const isFirst = i === 0;
-                  return `
-                    <div class="boat-item ${isFirst ? 'active-boat' : ''}" data-idx="${i}">
-                      <div class="boat-color" style="background:${BOAT_COLORS[i % BOAT_COLORS.length]}"></div>
-                      <div class="boat-info">
-                        <div class="boat-name">${escHtml(t.label || t.filename || 'Boot ' + (i+1))}</div>
-                        <div class="boat-meta">${t.point_count ? t.point_count + ' punten' : ''}</div>
-                      </div>
-                    </div>
-                  `;
-                }).join('')}
+                ${renderBoatList(raceTracks || [])}
               </div>
             </div>
           </div>

@@ -110,10 +110,14 @@ function createRacesRouter(db, tracksDir) {
       `SELECT t.id, t.name, t.recorded_at, t.duration_seconds, t.distance_meters,
               t.max_speed_knots, t.avg_speed_knots, t.wind_direction_deg, t.point_count,
               u.email AS user_email,
-              rt.linked_at
+              rt.linked_at,
+              sc.name AS series_class_name, sc.code AS series_class_code,
+              c.name AS class_name, c.code AS class_code
        FROM race_tracks rt
        JOIN tracks t ON t.id = rt.track_id
        JOIN users u ON u.id = rt.user_id
+       LEFT JOIN series_classes sc ON sc.id = rt.series_class_id
+       LEFT JOIN classes c ON c.id = rt.class_id
        WHERE rt.race_id = ?
        ORDER BY t.avg_speed_knots DESC`
     ).all(req.params.id);
