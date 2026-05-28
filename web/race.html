@@ -391,6 +391,8 @@
     requireAuth();
     checkAdmin().then(() => renderHeader('race'));
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const trackId = urlParams.get('id');
     const raceId = sessionStorage.getItem('raceId');
     const BOAT_COLORS = ['#1d4ed8', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#0891b2', '#65a30d'];
 
@@ -403,8 +405,15 @@
     let playbackSpeed = 1;
     let playbackIdx = 0;
 
+    // ── Load: individual track (via ?id=) or race (via sessionStorage) ──
     async function loadRace() {
       const container = document.getElementById('race-content');
+
+      // Check for individual track first
+      if (trackId) {
+        await loadSingleTrack(trackId, container);
+        return;
+      }
 
       if (!raceId) {
         container.innerHTML = '<div class="error-state"><p>Geen race geselecteerd. <a href="dashboard.html">Ga terug</a>.</p></div>';
@@ -810,6 +819,100 @@
         slider.value = playbackIdx;
         updatePlaybackPosition();
       }, 100 / playbackSpeed);
+    }
+
+    // ── Load individual track ────────────────────────────────────────────
+    async function loadSingleTrack(tid, container) {
+      try {
+        const track = await apiGet('/tracks/' + tid);
+        if (!track || track.error) throw new Error(track?.error || 'Niet gevonden');
+
+        document.getElementById('breadcrumb-race').textContent = track.name || 'Track #' + tid;
+
+        // Fetch GPX coordinates
+        let coords = [];
+        try {
+          const gpxRes = await fetch(API + '/tracks/' + tid + '/gpx', {
+            headers: { 'Authorization': 'Bearer ' + getToken() },
+          });
+          if (gpxRes.ok) {
+            const xml = await gpxRes.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(xml, 'text/xml');
+            const pts = doc.querySelectorAll('trkpt');
+            pts.forEach(pt => {
+              const lat = parseFloat(pt.getAttribute('lat'));
+              const lon = parseFloat(pt.getAttribute('lon'));
+              if (!isNaN(lat) && !isNaN(lon)) coords.push([lat, lon]);
+            });
+          }
+        } catch (_) {}
+
+        // Use demo track if no coords
+        const displayCoords = coords.length >= 2 ? coords : generateSailingTrack([52.0, 4.5]);
+
+        const kn = n => n != null ? n.toFixed(1) + ' kn' : '—';
+        const dur = track.duration_seconds ? fmtDuration(track.duration_seconds) : '—';
+        const dist = track.distance_meters != null ? (track.distance_meters >= 1000 ? (track.distance_meters/1000).toFixed(1) + ' km' : Math.round(track.distance_meters) + ' m') : '—';
+
+        container.innerHTML = `
+          <div class="breadcrumb">
+            <a href="dashboard.html">Dashboard</a>
+            <span>·</span>
+            <span>${escHtml(track.name || 'Track #' + tid)}</span>
+          </div>
+
+          <div class="race-header">
+            <div>
+              <h2>${escHtml(track.name || 'Track #' + tid)}</h2>
+              <div class="race-meta">${fmtDate(track.recorded_at)} · ${track.point_count || coords.length} punten</div>
+            </div>
+          </div>
+
+          <div class="map-section">
+            <div class="map-container">
+              <div id="map"></div>
+            </div>
+            <div class="map-sidebar">
+              <div class="info-panel">
+                <h4>Track details</h4>
+                <div class="info-grid">
+                  <div class="info-cell"><div class="val">${kn(track.max_speed_knots)}</div><div class="lbl">Max snelheid</div></div>
+                  <div class="info-cell"><div class="val">${kn(track.avg_speed_knots)}</div><div class="lbl">Gemiddeld</div></div>
+                  <div class="info-cell"><div class="val">${dist}</div><div class="lbl">Afstand</div></div>
+                  <div class="info-cell"><div class="val">${dur}</div><div class="lbl">Duur</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // We coords but need to wrap as pseudo-track for the map functions
+        tracks = [Object.assign({}, track, { _coords: displayCoords })];
+        initMap();
+        const line = L.polyline(displayCoords, {
+          color: BOAT_COLORS[0],
+          weight: 3,
+          opacity: 0.85,
+        }).addTo(map);
+        trackLines.push(line);
+        map.fitBounds(line.getBounds().pad(0.1));
+
+        if (displayCoords.length > 0) {
+          const end = displayCoords[displayCoords.length - 1];
+          const marker = L.circleMarker(end, {
+            radius: 6,
+            color: BOAT_COLORS[0],
+            fillColor: '#fff',
+            fillOpacity: 1,
+            weight: 2,
+          }).addTo(map);
+          marker.bindTooltip('Finish', { direction: 'top' });
+        }
+
+      } catch (e) {
+        container.innerHTML = '<div class="error-state"><p>Kon track niet laden. <a href="dashboard.html">Ga terug</a>.</p></div>';
+      }
     }
 
     loadRace();

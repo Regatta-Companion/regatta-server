@@ -164,6 +164,110 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .loading-state p { font-size: 14px; }
 
+    /* ── Tabs ── */
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-btn {
+      padding: 10px 20px;
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: -1px;
+    }
+    .tab-btn:hover { color: var(--fg); }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ── Track cards ── */
+    .track-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .track-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+      box-shadow: 0 2px 8px rgba(0,10,30,0.03);
+    }
+    .track-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 4px 16px rgba(0,10,30,0.08);
+    }
+
+    .track-card .track-name {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .track-card .track-date {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .track-card .track-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .track-card .track-stat .ts-val {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .track-card .track-stat .ts-lbl {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .track-card .track-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 12px;
+      gap: 8px;
+    }
+
+    .track-card .btn-del {
+      padding: 5px 10px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .track-card .btn-del:hover { border-color: var(--red); color: var(--red); }
+
+    @media (max-width: 640px) {
+      .track-grid { grid-template-columns: 1fr; }
+    }
+
     /* ── Enhanced mobile ── */
     .mobile-nav {
       display: none;
@@ -383,7 +487,7 @@
   </div>
 
   <div class="dashboard">
-    <h2>Wedstrijden</h2>
+    <h2>Dashboard</h2>
     <p class="subtitle" id="subtitle">Je race-track data</p>
 
     <div class="stats-row" id="stats-row">
@@ -401,18 +505,40 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="race-list-header">
-        <span class="card-title">Race overzicht</span>
-        <div class="filter-bar">
-          <input class="input" id="search-input" placeholder="Zoek wedstrijd…" />
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="races">Wedstrijden</button>
+      <button class="tab-btn" data-tab="tracks">Mijn tracks</button>
+    </div>
+
+    <!-- ═══ Wedstrijden ═══ -->
+    <div id="tab-races">
+      <div class="card">
+        <div class="race-list-header">
+          <span class="card-title">Race overzicht</span>
+          <div class="filter-bar">
+            <input class="input" id="search-input" placeholder="Zoek wedstrijd…" />
+          </div>
+        </div>
+        <div id="race-list">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Wedstrijden laden…</p>
+          </div>
         </div>
       </div>
+    </div>
 
-      <div id="race-list">
-        <div class="loading-state">
-          <div class="spinner"></div>
-          <p>Wedstrijden laden…</p>
+    <!-- ═══ Mijn tracks ═══ -->
+    <div id="tab-tracks" style="display:none">
+      <div class="card">
+        <div class="race-list-header">
+          <span class="card-title">Mijn GPX tracks</span>
+        </div>
+        <div id="track-grid" class="track-grid">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Tracks laden…</p>
+          </div>
         </div>
       </div>
     </div>
@@ -443,6 +569,18 @@
 
     let races = [];
     let tracks = [];
+    let currentTab = 'races';
+
+    // ── Tab switching ──
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentTab = btn.dataset.tab;
+        document.getElementById('tab-races').style.display = currentTab === 'races' ? 'block' : 'none';
+        document.getElementById('tab-tracks').style.display = currentTab === 'tracks' ? 'block' : 'none';
+      });
+    });
 
     async function loadData() {
       try {
@@ -456,14 +594,16 @@
 
         document.getElementById('stat-races').textContent = races.length;
         document.getElementById('stat-tracks').textContent = tracks.length;
-        document.getElementById('stat-distance').textContent = '—';
 
-        const subtitle = document.getElementById('subtitle');
-        if (races.length > 0) {
-          subtitle.textContent = races.length + ' wedstrijd' + (races.length !== 1 ? 'en' : '') + ' gevonden';
+        // Bereken totale afstand in nautische mijlen
+        let totalNm = 0;
+        if (Array.isArray(tracks)) {
+          totalNm = tracks.reduce((sum, t) => sum + ((t.distance_meters || 0) / 1852), 0);
         }
+        document.getElementById('stat-distance').textContent = totalNm.toFixed(1) + ' nm';
 
         renderRaces(races);
+        renderTracks(tracks);
       } catch (e) {
         document.getElementById('race-list').innerHTML =
           '<div class="empty-state"><p>Kon gegevens niet laden. Probeer opnieuw in te loggen.</p></div>';
@@ -510,15 +650,75 @@
       }).join('');
     }
 
-    function escHtml(s) {
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
-    }
-
     function openRace(id) {
       sessionStorage.setItem('raceId', id);
       window.location.href = 'race.html';
+    }
+
+    function openTrack(id) {
+      window.location.href = 'race.html?id=' + id;
+    }
+
+    function renderTracks(list) {
+      const grid = document.getElementById('track-grid');
+      if (!list || !list.length) {
+        grid.innerHTML = `
+          <div class="empty-state" style="grid-column:1/-1">
+            <svg viewBox="0 0 28 28" fill="none" stroke="var(--muted)" stroke-width="1.5">
+              <path d="M14 3L6 18h16L14 3z"/>
+              <path d="M14 18v7"/>
+              <path d="M10 25h8"/>
+            </svg>
+            <h3>Nog geen tracks</h3>
+            <p>Start een race in de Regatta Screen app en je tracks verschijnen hier automatisch.</p>
+          </div>`;
+        return;
+      }
+
+      const MS_TO_KNOTS = 1.94384;
+
+      grid.innerHTML = list.map(t => {
+        const name = escHtml(t.name || t.filename || 'Track #' + t.id);
+        const date = fmtDate(t.recorded_at);
+        const dur = t.duration_seconds ? fmtDuration(t.duration_seconds) : '—';
+        const dist = t.distance_meters != null ? (t.distance_meters >= 1000 ? (t.distance_meters/1000).toFixed(1) + ' km' : Math.round(t.distance_meters) + ' m') : '—';
+        const maxKn = t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) + ' kn' : '—';
+        const avgKn = t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) + ' kn' : '—';
+        return `
+          <div class="track-card" onclick="openTrack(${t.id})" data-track-id="${t.id}">
+            <div class="track-name">${name}</div>
+            <div class="track-date">${date}</div>
+            <div class="track-stats">
+              <div class="track-stat"><div class="ts-val">${maxKn}</div><div class="ts-lbl">Max snelheid</div></div>
+              <div class="track-stat"><div class="ts-val">${avgKn}</div><div class="ts-lbl">Gemiddeld</div></div>
+              <div class="track-stat"><div class="ts-val">${dist}</div><div class="ts-lbl">Afstand</div></div>
+              <div class="track-stat"><div class="ts-val">${dur}</div><div class="ts-lbl">Duur</div></div>
+            </div>
+            <div class="track-actions">
+              <button class="btn-del" onclick="event.stopPropagation();deleteTrackClicked(this)">Verwijder</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    async function deleteTrackClicked(btn) {
+      const card = btn.closest('.track-card');
+      const id = parseInt(card.dataset.trackId);
+      const name = card.querySelector('.track-name').textContent;
+      if (!confirm('Weet je zeker dat je "' + name + '" wilt verwijderen?')) return;
+      try {
+        await fetch(API + '/tracks/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + getToken() },
+        });
+        tracks = tracks.filter(t => t.id !== id);
+        document.getElementById('stat-tracks').textContent = tracks.length;
+        let totalNm = tracks.reduce((sum, t) => sum + ((t.distance_meters || 0) / 1852), 0);
+        document.getElementById('stat-distance').textContent = totalNm.toFixed(1) + ' nm';
+        renderTracks(tracks);
+      } catch (e) {
+        alert('Verwijderen mislukt: ' + e.message);
+      }
     }
 
     document.getElementById('search-input').addEventListener('input', function() {

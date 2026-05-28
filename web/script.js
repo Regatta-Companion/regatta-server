@@ -134,6 +134,12 @@ function handleLogout() {
   window.location.href = '/';
 }
 
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
 /* ── Admin panel ──────────────────────────────────────────── */
 function toggleAdminPanel() {
   const panel = document.getElementById('admin-panel');
