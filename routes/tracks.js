@@ -152,27 +152,68 @@ function createTracksRouter(db, tracksDir) {
     },
   });
 
-  // ── POST / — upload a GPX file ─────────────────────────────────────────
-  router.post('/', upload.single('gpx'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Geen GPX-bestand ontvangen.' });
+  // ── POST / — upload a GPX file (multipart or JSON) ──────────────────────
+  // JSON body (Garmin WiFi): { "gpx": "<xml>", "filename": "track.gpx" }
+  // Multipart (web/android): form field "gpx"
+  router.post('/', (req, res, next) => {
+    // Check if this is a JSON upload (Garmin WiFi direct)
+    var ct = req.get('Content-Type') || '';
+    if (ct.indexOf('application/json') !== -1) {
+      // JSON path — bypass multer, write GPX from req.body.gpx
+      if (!req.body || !req.body.gpx) {
+        return res.status(400).json({ error: 'Geen GPX-data in JSON body (veld "gpx").' });
+      }
+
+      var gpxContent = req.body.gpx;
+      var filename = req.body.filename || 'track_garmin.gpx';
+      var userDir = path.join(tracksDir, String(req.userId));
+      fs.mkdirSync(userDir, { recursive: true });
+      var filePath = path.join(userDir, filename);
+
+      try {
+        fs.writeFileSync(filePath, gpxContent, 'utf8');
+      } catch (e) {
+        return res.status(500).json({ error: 'Kon GPX niet opslaan: ' + e.message });
+      }
+
+      // Attach file-like object for shared processing below
+      req._jsonGpx = true;
+      req._gpxPath = filePath;
+      req._gpxFilename = filename;
+      next();
+      return;
+    }
+    // Multipart path — use multer
+    upload.single('gpx')(req, res, next);
+  }, async (req, res) => {
+    var filePath, originalFilename, isJsonGpx;
+
+    if (req._jsonGpx) {
+      filePath = req._gpxPath;
+      originalFilename = req._gpxFilename;
+      isJsonGpx = true;
+    } else {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Geen GPX-bestand ontvangen.' });
+      }
+      filePath = req.file.path;
+      originalFilename = req.file.originalname || req.file.filename;
+      isJsonGpx = false;
     }
 
-    const originalFilename = req.file.originalname || req.file.filename;
-
     // Duplicate check by original filename
-    const existing = db
+    var existing = db
       .prepare('SELECT id FROM tracks WHERE user_id = ? AND original_filename = ?')
       .get(req.userId, originalFilename);
 
     if (existing) {
-      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      try { fs.unlinkSync(filePath); } catch (_) {}
       return res.status(409).json({ error: 'Track staat al op de server.', id: existing.id });
     }
 
     try {
-      const xmlContent = fs.readFileSync(req.file.path, 'utf8');
-      const stats = parseGpx(xmlContent);
+      var xmlContent = fs.readFileSync(filePath, 'utf8');
+      var stats = parseGpx(xmlContent);
 
       const windDeg =
         req.body.wind_direction_deg !== undefined &&
@@ -190,7 +231,7 @@ function createTracksRouter(db, tracksDir) {
         )
         .run(
           req.userId,
-          req.file.filename,
+          path.basename(filePath),
           originalFilename,
           stats.name,
           stats.recordedAt,
@@ -205,7 +246,7 @@ function createTracksRouter(db, tracksDir) {
       return res.status(201).json({ id: result.lastInsertRowid });
     } catch (err) {
       console.error('Upload error:', err);
-      try { fs.unlinkSync(req.file.path); } catch (_) {}
+      try { fs.unlinkSync(filePath); } catch (_) {}
       return res.status(422).json({ error: `Kon GPX niet verwerken: ${err.message}` });
     }
   });
