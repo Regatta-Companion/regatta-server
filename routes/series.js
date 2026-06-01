@@ -2,7 +2,7 @@
 'use strict';
 
 const express = require('express');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware, seriesAccessMiddleware } = require('../middleware/auth');
 
 function createSeriesRouter(db) {
   const router = express.Router();
@@ -23,17 +23,41 @@ function createSeriesRouter(db) {
   });
 
   // ── GET / — lijst van alle reeksen met wedstrijdtelling ──────────────────
+  // Admins (non-super) zien alleen eigen + toegewezen reeksen.
+  // Super admins en zeilers zien alle reeksen.
   router.get('/', (req, res) => {
-    const rows = db.prepare(`
-      SELECT s.id, s.name, s.description, s.season, s.created_at,
-             u.email AS created_by_email,
-             COUNT(r.id) AS race_count
-      FROM series s
-      JOIN users u ON u.id = s.created_by
-      LEFT JOIN races r ON r.series_id = s.id
-      GROUP BY s.id
-      ORDER BY s.created_at DESC
-    `).all();
+    const user = req.db.prepare('SELECT is_admin, is_super_admin FROM users WHERE id = ?').get(req.userId);
+    const isAdminUser = user && user.is_admin;
+    const isSuper = user && user.is_super_admin;
+
+    let rows;
+    if (isAdminUser && !isSuper) {
+      // Admin: only own series + granted
+      rows = req.db.prepare(`
+        SELECT s.id, s.name, s.description, s.season, s.created_at,
+               u.email AS created_by_email,
+               COUNT(r.id) AS race_count
+        FROM series s
+        JOIN users u ON u.id = s.created_by
+        LEFT JOIN races r ON r.series_id = s.id
+        WHERE s.created_by = ? OR s.id IN (SELECT series_id FROM series_admins WHERE user_id = ?)
+        GROUP BY s.id
+        ORDER BY s.created_at DESC
+      `).all(req.userId, req.userId);
+    } else {
+      // Super admin or regular user: see all
+      rows = req.db.prepare(`
+        SELECT s.id, s.name, s.description, s.season, s.created_at,
+               u.email AS created_by_email,
+               COUNT(r.id) AS race_count
+        FROM series s
+        JOIN users u ON u.id = s.created_by
+        LEFT JOIN races r ON r.series_id = s.id
+        GROUP BY s.id
+        ORDER BY s.created_at DESC
+      `).all();
+    }
+
     return res.json(rows);
   });
 
@@ -60,7 +84,7 @@ function createSeriesRouter(db) {
   });
 
   // ── DELETE /:id — admin verwijdert een reeks (wedstrijden blijven) ────────
-  router.delete('/:id', adminMiddleware, (req, res) => {
+  router.delete('/:id', adminMiddleware, seriesAccessMiddleware(), (req, res) => {
     const s = db.prepare('SELECT id FROM series WHERE id = ?').get(req.params.id);
     if (!s) return res.status(404).json({ error: 'Reeks niet gevonden.' });
     // Wedstrijden krijgen series_id = NULL (ON DELETE SET NULL)
@@ -69,7 +93,7 @@ function createSeriesRouter(db) {
   });
 
   // ── POST /:id/races — admin voegt wedstrijd toe aan reeks ─────────────────
-  router.post('/:id/races', adminMiddleware, (req, res) => {
+  router.post('/:id/races', adminMiddleware, seriesAccessMiddleware(), (req, res) => {
     const s = db.prepare('SELECT id FROM series WHERE id = ?').get(req.params.id);
     if (!s) return res.status(404).json({ error: 'Reeks niet gevonden.' });
 

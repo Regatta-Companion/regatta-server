@@ -2,7 +2,7 @@
 'use strict';
 
 const express = require('express');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware, seriesAccessMiddleware } = require('../middleware/auth');
 
 // Leesbare tekens: geen 0/O, 1/I/L verwarring
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -57,14 +57,34 @@ function createClassesRouter(db) {
 
   // ── DELETE /api/classes/:id — admin verwijdert race-klasse ───────────────
   router.delete('/classes/:id', adminMiddleware, (req, res) => {
-    const cls = db.prepare('SELECT id FROM classes WHERE id = ?').get(req.params.id);
+    const cls = db.prepare('SELECT c.id, c.race_id, r.series_id, r.created_by FROM classes c JOIN races r ON r.id = c.race_id WHERE c.id = ?').get(req.params.id);
     if (!cls) return res.status(404).json({ error: 'Klasse niet gevonden.' });
+
+    // Check race access
+    const user = db.prepare('SELECT is_super_admin FROM users WHERE id = ?').get(req.userId);
+    const isSuper = user && user.is_super_admin;
+
+    if (!isSuper) {
+      if (cls.series_id) {
+        // Race in series: check series access
+        const access = db.prepare(`
+          SELECT 1 FROM series WHERE id = ? AND created_by = ?
+          UNION
+          SELECT 1 FROM series_admins WHERE series_id = ? AND user_id = ?
+        `).get(cls.series_id, req.userId, cls.series_id, req.userId);
+        if (!access) return res.status(403).json({ error: 'Geen toegang tot deze wedstrijd.' });
+      } else {
+        // Standalone race: creator only
+        if (cls.created_by !== req.userId) return res.status(403).json({ error: 'Geen toegang tot deze wedstrijd.' });
+      }
+    }
+
     db.prepare('DELETE FROM classes WHERE id = ?').run(req.params.id);
     return res.json({ ok: true });
   });
 
   // ── POST /api/series/:seriesId/classes — admin maakt reeksklasse aan ─────
-  router.post('/series/:seriesId/classes', adminMiddleware, (req, res) => {
+  router.post('/series/:seriesId/classes', adminMiddleware, seriesAccessMiddleware('seriesId'), (req, res) => {
     const series = db.prepare('SELECT id FROM series WHERE id = ?').get(req.params.seriesId);
     if (!series) return res.status(404).json({ error: 'Reeks niet gevonden.' });
 
@@ -95,8 +115,22 @@ function createClassesRouter(db) {
 
   // ── DELETE /api/series-classes/:id — admin verwijdert reeksklasse ─────────
   router.delete('/series-classes/:id', adminMiddleware, (req, res) => {
-    const cls = db.prepare('SELECT id FROM series_classes WHERE id = ?').get(req.params.id);
+    const cls = db.prepare('SELECT id, series_id FROM series_classes WHERE id = ?').get(req.params.id);
     if (!cls) return res.status(404).json({ error: 'Reeksklasse niet gevonden.' });
+
+    // Check series access (same logic as seriesAccessMiddleware)
+    const user = db.prepare('SELECT is_super_admin FROM users WHERE id = ?').get(req.userId);
+    const isSuper = user && user.is_super_admin;
+
+    if (!isSuper) {
+      const access = db.prepare(`
+        SELECT 1 FROM series WHERE id = ? AND created_by = ?
+        UNION
+        SELECT 1 FROM series_admins WHERE series_id = ? AND user_id = ?
+      `).get(cls.series_id, req.userId, cls.series_id, req.userId);
+      if (!access) return res.status(403).json({ error: 'Geen toegang tot deze reeks.' });
+    }
+
     db.prepare('DELETE FROM series_classes WHERE id = ?').run(req.params.id);
     return res.json({ ok: true });
   });

@@ -4,7 +4,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware, seriesAccessMiddleware, raceAccessMiddleware } = require('../middleware/auth');
 
 function createRacesRouter(db, tracksDir) {
   const router = express.Router();
@@ -64,7 +64,7 @@ function createRacesRouter(db, tracksDir) {
   });
 
   // ── DELETE /:id — admin deletes a race ────────────────────────────────────
-  router.delete('/:id', adminMiddleware, (req, res) => {
+  router.delete('/:id', adminMiddleware, raceAccessMiddleware, (req, res) => {
     const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.id);
     if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
     db.prepare('DELETE FROM races WHERE id = ?').run(req.params.id);

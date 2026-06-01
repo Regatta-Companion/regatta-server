@@ -80,7 +80,15 @@ function initDb(dbPath) {
       code       TEXT    NOT NULL UNIQUE,
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-    )
+    );
+
+    CREATE TABLE IF NOT EXISTS series_admins (
+      series_id  INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      granted_by INTEGER NOT NULL REFERENCES users(id),
+      granted_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (series_id, user_id)
+    );
   `);
 
   // Migrations

@@ -50,4 +50,73 @@ function superAdminMiddleware(req, res, next) {
   next();
 }
 
-module.exports = { authMiddleware, adminMiddleware, superAdminMiddleware, SECRET };
+/**
+ * Must be used after authMiddleware + adminMiddleware.
+ * Checks that the admin has access to the series: creator, granted admin, or super admin.
+ * @param {string} [paramName='id'] — the req.params key containing the series ID
+ */
+function seriesAccessMiddleware(paramName) {
+  const key = paramName || 'id';
+  return (req, res, next) => {
+    const seriesId = parseInt(req.params[key], 10);
+    if (isNaN(seriesId)) return res.status(400).json({ error: 'Ongeldige reeks-ID.' });
+
+    // Super admin always has access
+    const user = req.db.prepare('SELECT is_super_admin FROM users WHERE id = ?').get(req.userId);
+    if (user && user.is_super_admin) return next();
+
+    // Check creator or granted admin
+    const access = req.db.prepare(`
+      SELECT 1 FROM series WHERE id = ? AND created_by = ?
+      UNION
+      SELECT 1 FROM series_admins WHERE series_id = ? AND user_id = ?
+    `).get(seriesId, req.userId, seriesId, req.userId);
+
+    if (!access) {
+      return res.status(403).json({ error: 'Geen toegang tot deze reeks.' });
+    }
+    next();
+  };
+}
+
+/**
+ * Must be used after authMiddleware + adminMiddleware.
+ * Checks that the admin has access to the race: creator (standalone), series access, or super admin.
+ * @param {string} [paramName='id'] — the req.params key containing the race ID
+ */
+function raceAccessMiddleware(paramName) {
+  const key = paramName || 'id';
+  return (req, res, next) => {
+    const raceId = parseInt(req.params[key], 10);
+    if (isNaN(raceId)) return res.status(400).json({ error: 'Ongeldige wedstrijd-ID.' });
+
+    // Super admin always has access
+    const user = req.db.prepare('SELECT is_super_admin FROM users WHERE id = ?').get(req.userId);
+    if (user && user.is_super_admin) return next();
+
+    const race = req.db.prepare('SELECT id, created_by, series_id FROM races WHERE id = ?').get(raceId);
+    if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
+
+    // Standalone race: creator only
+    if (!race.series_id) {
+      if (race.created_by !== req.userId) {
+        return res.status(403).json({ error: 'Geen toegang tot deze wedstrijd.' });
+      }
+      return next();
+    }
+
+    // Series race: check series access
+    const access = req.db.prepare(`
+      SELECT 1 FROM series WHERE id = ? AND created_by = ?
+      UNION
+      SELECT 1 FROM series_admins WHERE series_id = ? AND user_id = ?
+    `).get(race.series_id, req.userId, race.series_id, req.userId);
+
+    if (!access) {
+      return res.status(403).json({ error: 'Geen toegang tot deze wedstrijd.' });
+    }
+    next();
+  };
+}
+
+module.exports = { authMiddleware, adminMiddleware, superAdminMiddleware, seriesAccessMiddleware, raceAccessMiddleware, SECRET };

@@ -173,6 +173,68 @@ function createAdminRouter(db) {
     }
   });
 
+  // ── GET /api/admin/series/:id/admins — lijst admins met toegang tot reeks ──
+  router.get('/series/:id/admins', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Ongeldige reeks-ID.' });
+
+    const series = db.prepare('SELECT id FROM series WHERE id = ?').get(id);
+    if (!series) return res.status(404).json({ error: 'Reeks niet gevonden.' });
+
+    const admins = db.prepare(`
+      SELECT u.id, u.email, sa.granted_at, u2.email AS granted_by_email
+      FROM series_admins sa
+      JOIN users u ON u.id = sa.user_id
+      JOIN users u2 ON u2.id = sa.granted_by
+      WHERE sa.series_id = ?
+      ORDER BY sa.granted_at DESC
+    `).all(id);
+
+    return res.json(admins);
+  });
+
+  // ── POST /api/admin/series/:id/admins — admin toegang geven tot reeks ─────
+  router.post('/series/:id/admins', (req, res) => {
+    const seriesId = parseInt(req.params.id, 10);
+    if (isNaN(seriesId)) return res.status(400).json({ error: 'Ongeldige reeks-ID.' });
+
+    const { user_id } = req.body || {};
+    if (!user_id) return res.status(400).json({ error: 'user_id is verplicht.' });
+
+    const series = db.prepare('SELECT id, name FROM series WHERE id = ?').get(seriesId);
+    if (!series) return res.status(404).json({ error: 'Reeks niet gevonden.' });
+
+    const targetUser = db.prepare('SELECT id, is_admin FROM users WHERE id = ?').get(user_id);
+    if (!targetUser) return res.status(404).json({ error: 'Gebruiker niet gevonden.' });
+    if (!targetUser.is_admin) return res.status(400).json({ error: 'Alleen beheerders kunnen toegang krijgen tot reeksen.' });
+
+    const existing = db.prepare(
+      'SELECT 1 FROM series_admins WHERE series_id = ? AND user_id = ?'
+    ).get(seriesId, user_id);
+    if (existing) return res.status(409).json({ error: 'Deze beheerder heeft al toegang tot deze reeks.' });
+
+    db.prepare(
+      'INSERT INTO series_admins (series_id, user_id, granted_by) VALUES (?, ?, ?)'
+    ).run(seriesId, user_id, req.userId);
+
+    return res.status(201).json({ ok: true, series_id: seriesId, user_id });
+  });
+
+  // ── DELETE /api/admin/series/:id/admins/:userId — admin toegang intrekken ─
+  router.delete('/series/:id/admins/:userId', (req, res) => {
+    const seriesId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (isNaN(seriesId) || isNaN(userId)) return res.status(400).json({ error: 'Ongeldige ID.' });
+
+    const link = db.prepare(
+      'SELECT 1 FROM series_admins WHERE series_id = ? AND user_id = ?'
+    ).get(seriesId, userId);
+    if (!link) return res.status(404).json({ error: 'Deze beheerder heeft geen toegang tot deze reeks.' });
+
+    db.prepare('DELETE FROM series_admins WHERE series_id = ? AND user_id = ?').run(seriesId, userId);
+    return res.json({ ok: true });
+  });
+
   return router;
 }
 
