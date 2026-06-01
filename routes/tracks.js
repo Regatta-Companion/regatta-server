@@ -165,7 +165,7 @@ function createTracksRouter(db, tracksDir) {
       }
 
       var gpxContent = req.body.gpx;
-      var filename = req.body.filename || 'track_garmin.gpx';
+      var filename = path.basename(req.body.filename || 'track_garmin.gpx');
       var userDir = path.join(tracksDir, String(req.userId));
       fs.mkdirSync(userDir, { recursive: true });
       var filePath = path.join(userDir, filename);

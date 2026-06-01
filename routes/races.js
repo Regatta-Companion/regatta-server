@@ -71,18 +71,18 @@ function createRacesRouter(db, tracksDir) {
     return res.json({ ok: true });
   });
 
-  // ── POST /:id/tracks — link own track to a race ───────────────────────────
-  router.post('/:id/tracks', (req, res) => {
+  // ── POST /:id/tracks — admin links a track to a race ───────────────────────
+  router.post('/:id/tracks', adminMiddleware, (req, res) => {
     const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.id);
     if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
 
     const { track_id } = req.body || {};
     if (!track_id) return res.status(400).json({ error: 'track_id is verplicht.' });
 
-    // Verify the track belongs to this user
+    // Verify the track exists (admin can link any user's track)
     const track = db.prepare(
-      'SELECT id FROM tracks WHERE id = ? AND user_id = ?'
-    ).get(track_id, req.userId);
+      'SELECT id, user_id FROM tracks WHERE id = ?'
+    ).get(track_id);
     if (!track) return res.status(404).json({ error: 'Track niet gevonden.' });
 
     // Check not already linked
@@ -93,16 +93,16 @@ function createRacesRouter(db, tracksDir) {
 
     db.prepare(
       'INSERT INTO race_tracks (race_id, track_id, user_id) VALUES (?, ?, ?)'
-    ).run(req.params.id, track_id, req.userId);
+    ).run(req.params.id, track_id, track.user_id);
 
     return res.status(201).json({ ok: true });
   });
 
-  // ── DELETE /:id/tracks/:trackId — unlink own track ────────────────────────
-  router.delete('/:id/tracks/:trackId', (req, res) => {
+  // ── DELETE /:id/tracks/:trackId — admin unlinks a track ────────────────────
+  router.delete('/:id/tracks/:trackId', adminMiddleware, (req, res) => {
     const link = db.prepare(
-      'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ? AND user_id = ?'
-    ).get(req.params.id, req.params.trackId, req.userId);
+      'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ?'
+    ).get(req.params.id, req.params.trackId);
     if (!link) return res.status(404).json({ error: 'Koppeling niet gevonden.' });
 
     db.prepare(
@@ -136,7 +136,7 @@ function createRacesRouter(db, tracksDir) {
     return res.json(tracks);
   });
 
-  // ── GET /:id/tracks/:trackId/gpx — GPX of any participant's track ─────────
+  // ── GET /:id/tracks/:trackId/gpx — GPX of a participant's track (owner only) ─
   router.get('/:id/tracks/:trackId/gpx', (req, res) => {
     // Verify the track is actually in this race
     const link = db.prepare(
@@ -145,6 +145,11 @@ function createRacesRouter(db, tracksDir) {
        WHERE rt.race_id = ? AND rt.track_id = ?`
     ).get(req.params.id, req.params.trackId);
     if (!link) return res.status(404).json({ error: 'Track niet gevonden in deze wedstrijd.' });
+
+    // Only the track owner can download the GPX
+    if (link.user_id !== req.userId) {
+      return res.status(403).json({ error: 'Alleen de eigenaar kan het GPX-bestand downloaden.' });
+    }
 
     const filePath = path.join(tracksDir, String(link.user_id), link.filename);
     if (!fs.existsSync(filePath)) {
