@@ -174,7 +174,7 @@
     .boat-item .boat-info { flex: 1; min-width: 0; }
     .boat-item .boat-name {
       font-weight: 600;
-      font-size: 13px;
+      font-size: 15px;
     }
     .boat-item .boat-meta {
       font-size: 11px;
@@ -525,13 +525,14 @@
         html += `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);padding:10px 0 4px">${escHtml(gname)}</div>`;
         groups[gname].forEach((t, j) => {
           const i = t._origIdx;
-          const boatInfo = [t.boat_type, t.boat_name].filter(Boolean).join(' · ');
+          const boatName = t.boat_name || 'Onbekende boot';
+          const subInfo = [t.team_name, t.boat_type].filter(Boolean).join(' · ');
           html += `
             <div class="boat-item ${i === 0 ? 'active-boat' : ''}" data-idx="${i}">
               <div class="boat-color" style="background:${BOAT_COLORS[i % BOAT_COLORS.length]}"></div>
               <div class="boat-info">
-                <div class="boat-name">${escHtml(t.user_email || '')}</div>
-                <div class="boat-meta">${escHtml(boatInfo || '')}${t.point_count ? ' · ' + t.point_count + ' punten' : ''}</div>
+                <div class="boat-name">${escHtml(boatName)}</div>
+                <div class="boat-meta">${escHtml(subInfo || '')}${t.point_count ? (subInfo ? ' · ' : '') + t.point_count + ' punten' : ''}</div>
               </div>
               <div class="boat-stats">
                 <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
@@ -543,13 +544,14 @@
 
       ungrouped.forEach((t, j) => {
         const i = t._origIdx;
-        const boatInfo = [t.boat_type, t.boat_name].filter(Boolean).join(' · ');
+        const boatName = t.boat_name || 'Onbekende boot';
+        const subInfo = [t.team_name, t.boat_type].filter(Boolean).join(' · ');
         html += `
           <div class="boat-item ${i === 0 ? 'active-boat' : ''}" data-idx="${i}">
             <div class="boat-color" style="background:${BOAT_COLORS[i % BOAT_COLORS.length]}"></div>
             <div class="boat-info">
-              <div class="boat-name">${escHtml(t.user_email || '')}</div>
-              <div class="boat-meta">${escHtml(boatInfo || '')}${t.point_count ? ' · ' + t.point_count + ' punten' : ''}</div>
+              <div class="boat-name">${escHtml(boatName)}</div>
+              <div class="boat-meta">${escHtml(subInfo || '')}${t.point_count ? (subInfo ? ' · ' : '') + t.point_count + ' punten' : ''}</div>
             </div>
             <div class="boat-stats">
               <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
