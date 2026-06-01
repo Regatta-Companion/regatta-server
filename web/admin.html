@@ -196,17 +196,24 @@
     // ── Load ────────────────────────────────────────────────────────────────
     async function loadAll() {
       try {
+        console.log('loadAll: fetching /series + /races');
         const [series, races] = await Promise.all([
           apiGet('/series') || [],
           apiGet('/races') || [],
         ]);
+        console.log('loadAll: series=', series && series.length, 'races=', races && races.length);
         allSeries = Array.isArray(series) ? series : [];
         allRaces = Array.isArray(races) ? races : [];
+        // Onthoud welke reeksen open stonden
+        var wasOpen = Object.keys(expandedSeries).map(Number);
         renderSeries(allSeries);
-        renderStandalone(allRaces.filter(r => !r.series_id));
+        renderStandalone(allRaces.filter(function(r) { return !r.series_id; }));
+        // Heropen
+        for (var i = 0; i < wasOpen.length; i++) { toggleSeries(wasOpen[i]); }
       } catch (e) {
+        console.error('loadAll failed:', e);
         document.getElementById('series-container').innerHTML =
-          '<p class="text-muted">Kon gegevens niet laden.</p>';
+          '<p class="text-muted">Kon gegevens niet laden: ' + e.message + '</p>';
       }
     }
 
