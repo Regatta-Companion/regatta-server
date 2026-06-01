@@ -209,12 +209,14 @@
       const season = document.getElementById('sf-season').value.trim() || null;
       const description = document.getElementById('sf-desc').value.trim() || null;
       try {
-        await apiPost('/series', { name, season, description });
+        console.log('POST /api/series', { name, season, description });
+        const result = await apiPost('/series', { name, season, description });
+        console.log('series created:', result);
         document.getElementById('sf-name').value = '';
         document.getElementById('sf-season').value = '';
         document.getElementById('sf-desc').value = '';
         await loadAll();
-      } catch (e) { alert('Fout: ' + e.message); }
+      } catch (e) { console.error('addSeries failed:', e); alert('Fout: ' + e.message); }
     }
 
     // ── Delete series ──────────────────────────────────────────────────────
@@ -235,12 +237,14 @@
       const race_date = document.getElementById('sr-date').value || null;
       const description = document.getElementById('sr-desc').value.trim() || null;
       try {
-        await apiPost('/races', { name, race_date, description });
+        console.log('POST /api/races', { name, race_date, description });
+        const result = await apiPost('/races', { name, race_date, description });
+        console.log('race created:', result);
         document.getElementById('sr-name').value = '';
         document.getElementById('sr-date').value = '';
         document.getElementById('sr-desc').value = '';
         await loadAll();
-      } catch (e) { alert('Fout: ' + e.message); }
+      } catch (e) { console.error('addStandaloneRace failed:', e); alert('Fout: ' + e.message); }
     }
 
     // ── Delete race ────────────────────────────────────────────────────────
@@ -256,17 +260,21 @@
 
     // ── Add race to series ─────────────────────────────────────────────────
     async function addSeriesRace(seriesId) {
-      const name = document.getElementById('race-name-' + seriesId).value.trim();
+      const nameEl = document.getElementById('race-name-' + seriesId);
+      if (!nameEl) { console.error('race-name-' + seriesId + ' not found'); return alert('Element niet gevonden.'); }
+      const name = nameEl.value.trim();
       if (!name) return alert('Naam is verplicht.');
       const race_date = document.getElementById('race-date-' + seriesId).value || null;
       const description = document.getElementById('race-desc-' + seriesId).value.trim() || null;
       try {
-        await apiPost('/series/' + seriesId + '/races', { name, race_date, description });
+        console.log('POST /api/series/' + seriesId + '/races', { name, race_date, description });
+        const result = await apiPost('/series/' + seriesId + '/races', { name, race_date, description });
+        console.log('series race created:', result);
         document.getElementById('race-name-' + seriesId).value = '';
         document.getElementById('race-date-' + seriesId).value = '';
         document.getElementById('race-desc-' + seriesId).value = '';
         await loadAll();
-      } catch (e) { alert('Fout: ' + e.message); }
+      } catch (e) { console.error('addSeriesRace failed:', e); alert('Fout: ' + e.message); }
     }
 
     // ── Series classes ─────────────────────────────────────────────────────
