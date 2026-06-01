@@ -60,7 +60,7 @@ function createRacesRouter(db, tracksDir) {
        )
        GROUP BY r.id
        ORDER BY s.name ASC, r.race_date ASC`
-    ).all(req.userId, req.userId);
+    ).all(req.userId, req.userId, req.userId);
     return res.json(races);
   });
 
