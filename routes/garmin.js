@@ -110,8 +110,15 @@ function createGarminRouter(db) {
 
     const scriptPath = path.join(__dirname, '..', 'garmin_sync.py');
 
+    // Determine python path — prefer venv, fallback to system python3
+    const pythonPath = (() => {
+      const venvPy = path.join(__dirname, '..', '.venv', 'bin', 'python');
+      try { if (require('fs').existsSync(venvPy)) return venvPy; } catch (_) {}
+      return 'python3';
+    })();
+
     // Run sync in background
-    const child = spawn('python3', [
+    const child = spawn(pythonPath, [
       scriptPath,
       apiBase,
       uploadToken,

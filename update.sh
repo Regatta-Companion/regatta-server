@@ -28,11 +28,16 @@ fi
 echo "--> npm install..."
 npm install --omit=dev
 
-# ── 3b. Python dependencies voor Garmin sync ──────────────────────────────────
-echo "--> Python garminconnect..."
+# ── 3b. Python virtualenv voor Garmin sync ────────────────────────────────────
+echo "--> Python venv + garminconnect..."
 if command -v python3 > /dev/null 2>&1; then
-  python3 -m pip install garminconnect --quiet 2>/dev/null || \
-    echo "  ⚠ python3 of pip niet beschikbaar — Garmin sync werkt niet"
+  VENV_DIR="$INSTALL_DIR/.venv"
+  if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+  "$VENV_DIR/bin/pip" install garminconnect --quiet 2>/dev/null || \
+    echo "  ⚠ garminconnect installatie mislukt — Garmin sync werkt niet"
+  echo "  ✓ garminconnect geïnstalleerd in .venv"
 else
   echo "  ⚠ python3 niet gevonden — Garmin sync werkt niet"
 fi
