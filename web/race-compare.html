@@ -447,7 +447,7 @@
         const cd = compareData.find(d => d.id === tracks[idx]?.id);
         const avgKn = (cd?.avg_speed_kn ?? parseFloat(tracks[idx]?.avg_speed_knots)) || 0;
         const maxKn = (cd?.max_speed_kn ?? parseFloat(tracks[idx]?.max_speed_knots)) || 0;
-        const distM = cd ? cd.distance_m : parseFloat(tracks[idx]?.distance_meters) || 0;
+        const distM = (cd?.distance_m ?? parseFloat(tracks[idx]?.distance_meters)) || 0;
         const distNm = (distM / 1852).toFixed(2);
         const pointCnt = cd ? cd.point_count : tracks[idx]?.point_count || 0;
 
