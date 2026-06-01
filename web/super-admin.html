@@ -153,7 +153,7 @@
           return `
             <div class="user-row">
               <div style="flex:1;min-width:180px">
-                <div class="u-email">${escHtml(u.email)} ${tag}</div>
+                <div class="u-email">${escHtml(u.email)} <span style="color:var(--muted);font-weight:400;font-size:11px">#${u.id}</span> ${tag}</div>
                 <div class="u-meta">${u.boatName ? escHtml(u.boatName) + ' · ' : ''}${u.trackCount} tracks · sinds ${fmtDate(u.createdAt)}</div>
               </div>
               <select onchange="changeRole(${u.id}, this.value)" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);max-width:130px">
@@ -201,10 +201,14 @@
 
     // ── Series access ────────────────────────────────────────────────────
     let allSeriesData = [];
+    let adminUsers = [];
 
     async function loadSeries() {
       try {
         allSeriesData = await apiGet('/series') || [];
+        // Also load admin users for the dropdown
+        const allUsers = await apiGet('/admin/users') || [];
+        adminUsers = allUsers.filter(u => u.role === 'Beheerder' || u.role === 'Super Admin');
         renderSeriesList();
       } catch (e) {
         document.getElementById('series-list').innerHTML = '<p class="text-muted">Fout bij laden series.</p>';
@@ -254,7 +258,10 @@
             </div>
           `).join('') || '<span class="text-muted">Geen extra beheerders.</span>'}
           <div class="frow" style="margin-top:8px;margin-bottom:0">
-            <input id="sadmin-inp-${seriesId}" class="input" placeholder="Beheerder ID (getal)" style="flex:1;max-width:140px;padding:5px 10px;font-size:12px">
+            <select id="sadmin-sel-${seriesId}" style="flex:1;max-width:220px;padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg)">
+              <option value="">— Kies beheerder —</option>
+              ${adminUsers.map(a => `<option value="${a.id}">${escHtml(a.email)} #${a.id} (${a.role})</option>`).join('')}
+            </select>
             <button class="btn-out" onclick="grantAccess(${seriesId})">Toegang geven</button>
           </div>
         `;
@@ -262,12 +269,12 @@
     }
 
     async function grantAccess(seriesId) {
-      const inp = document.getElementById('sadmin-inp-' + seriesId);
-      const userId = parseInt(inp?.value);
-      if (!userId) return alert('Voer een geldig gebruikers-ID in.');
+      const sel = document.getElementById('sadmin-sel-' + seriesId);
+      const userId = parseInt(sel?.value);
+      if (!userId) return alert('Kies een beheerder uit de lijst.');
       try {
         await apiPost('/admin/series/' + seriesId + '/admins', { user_id: userId });
-        inp.value = '';
+        sel.value = '';
         await loadSeriesAdmins(seriesId);
       } catch (e) { alert('Fout: ' + e.message); }
     }
