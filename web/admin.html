@@ -370,6 +370,7 @@
 
     // ── Render series cards ────────────────────────────────────────────────
     function renderSeries(list) {
+      console.log('renderSeries: rendering', list.length, 'series');
       const ctr = document.getElementById('series-container');
       if (!list.length) {
         ctr.innerHTML = '<div class="sect"><p class="text-muted">Nog geen reeksen. Maak er hierboven één aan.</p></div>';
@@ -394,9 +395,10 @@
     // ── Toggle series expand ───────────────────────────────────────────────
     let expandedSeries = {};
     async function toggleSeries(id) {
+      console.log('toggleSeries:', id, 'expanded?', !!expandedSeries[id]);
       const card = document.getElementById('scard-' + id);
       const body = document.getElementById('sbody-' + id);
-      if (!card || !body) return;
+      if (!card || !body) { console.log('toggleSeries:', id, 'card or body not found'); return; }
 
       if (expandedSeries[id]) {
         card.classList.remove('open');
@@ -461,6 +463,7 @@
 
     // ── Render standalone races ────────────────────────────────────────────
     function renderStandalone(list) {
+      console.log('renderStandalone:', list.length, 'races');
       const ctr = document.getElementById('standalone-races');
       if (!list.length) {
         ctr.innerHTML = '<p class="text-muted">Geen losse wedstrijden.</p>';
