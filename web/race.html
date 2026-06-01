@@ -47,6 +47,9 @@
       margin-top: 2px;
     }
 
+    .series-switcher { margin-top: 10px; }
+    .series-switcher select:focus { outline: none; border-color: var(--accent); }
+
     .race-header .race-actions { display: flex; gap: 8px; }
 
     /* ── Map + data grid ── */
@@ -405,6 +408,11 @@
     let playbackSpeed = 1;
     let playbackIdx = 0;
 
+    function switchRace(newRaceId) {
+      sessionStorage.setItem('raceId', newRaceId);
+      window.location.reload();
+    }
+
     // ── Load: individual track (via ?id=) or race (via sessionStorage) ──
     async function loadRace() {
       const container = document.getElementById('race-content');
@@ -424,11 +432,20 @@
         const race = await apiGet('/races/' + raceId);
         if (!race || race.error) throw new Error(race?.error || 'Niet gevonden');
 
+        // Load series races for dropdown if this race is part of a series
+        let seriesRaces = null;
+        if (race.series_id) {
+          try {
+            const series = await apiGet('/series/' + race.series_id);
+            seriesRaces = (series && series.races) ? series.races : null;
+          } catch (_) {}
+        }
+
         const raceTracks = await apiGet('/races/' + raceId + '/tracks') || [];
 
         document.getElementById('breadcrumb-race').textContent = race.name || race.label || 'Race #' + raceId;
 
-        container.innerHTML = buildRaceHTML(race, raceTracks);
+        container.innerHTML = buildRaceHTML(race, raceTracks, seriesRaces);
         tracks = Array.isArray(raceTracks) ? raceTracks : [];
 
         initMap();
@@ -524,15 +541,30 @@
       return html || '<div style="color:var(--muted);font-size:12px;padding:8px 0">Nog geen boten.</div>';
     }
 
-    function buildRaceHTML(race, raceTracks) {
+    function buildRaceHTML(race, raceTracks, seriesRaces) {
       const date = fmtDate(race.created_at || race.date);
       const trackCount = (raceTracks || []).length;
+
+      // Build series race switcher dropdown
+      let seriesSwitcher = '';
+      if (seriesRaces && seriesRaces.length > 1) {
+        const options = seriesRaces.map(r =>
+          `<option value="${r.id}" ${r.id === race.id ? 'selected' : ''}>${escHtml(r.name || 'Race #' + r.id)} ${r.race_date ? '· ' + fmtDate(r.race_date) : ''}</option>`
+        ).join('');
+        seriesSwitcher = `
+          <div class="series-switcher">
+            <select onchange="switchRace(this.value)" style="padding:5px 10px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);max-width:280px;cursor:pointer">
+              ${options}
+            </select>
+          </div>`;
+      }
 
       return `
         <div class="race-header">
           <div>
             <h2>${escHtml(race.name || race.label || 'Race #' + race.id)}</h2>
             <div class="race-meta">${date} · ${trackCount} boot${trackCount !== 1 ? 'en' : ''}</div>
+            ${seriesSwitcher}
           </div>
           <div class="race-actions">
             <button class="btn btn-secondary btn-sm" onclick="window.location.href='race-compare.html'">Vergelijk boten</button>
