@@ -114,10 +114,17 @@
     .map-legend .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
     #compare-map { width: 100%; height: 450px; background: var(--bg); }
 
-    /* ── Boat marker pulse ── */
-    .boat-marker {
-      width: 18px; height: 18px; border-radius: 50%;
-      border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    /* ── Boat marker ── */
+    .boat-marker-icon {
+      transition: transform 0.08s linear !important;
+    }
+    .boat-arrow {
+      width: 0; height: 0;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-top: 16px solid #ccc;
+      filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
+      transition: transform 0.08s linear, border-top-color 0.15s;
     }
 
     /* ── Speed chart ── */
@@ -547,12 +554,13 @@
         map.fitBounds(L.latLngBounds(allBounds).pad(0.1));
       }
 
-      // Place initial boat markers
+      // Create boat markers ONCE — updateBoatMarkers moves them each frame
+      initBoatMarkers();
       updateBoatMarkers();
     }
 
     /* ────────────────────────────────────────────────────────────────
-       BOAT MARKERS (playback)
+       BOAT MARKERS (playback) — smooth via setLatLng + CSS transition
        ──────────────────────────────────────────────────────────────── */
 
     function clearBoatMarkers() {
@@ -560,38 +568,52 @@
       boatMarkers = [];
     }
 
-    function updateBoatMarkers() {
-      if (!map) return;
+    function initBoatMarkers() {
       clearBoatMarkers();
 
       selectedBoatIdx.forEach(idx => {
         const cd = compareData.find(d => d.id === tracks[idx]?.id);
         if (!cd || cd.points.length < 2) return;
 
+        const color = BOAT_COLORS[idx % BOAT_COLORS.length];
+        const icon = L.divIcon({
+          className: 'boat-marker-icon',
+          html: `<div class="boat-arrow" style="border-top-color:${color}"></div>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 10],
+        });
+
+        const marker = L.marker([0, 0], { icon }).addTo(map);
+        boatMarkers.push(marker);
+      });
+    }
+
+    function updateBoatMarkers() {
+      if (!map || boatMarkers.length === 0) return;
+
+      selectedBoatIdx.forEach((idx, markerIdx) => {
+        const cd = compareData.find(d => d.id === tracks[idx]?.id);
+        if (!cd || cd.points.length < 2) return;
+
+        const marker = boatMarkers[markerIdx];
+        if (!marker) return;
+
         const pos = interpolatePosition(cd, currentTime);
         if (!pos) return;
 
-        const color = BOAT_COLORS[idx % BOAT_COLORS.length];
-        const marker = L.circleMarker([pos.lat, pos.lng], {
-          radius: 10,
-          fillColor: color,
-          color: '#fff',
-          weight: 3,
-          fillOpacity: 0.9,
-        }).addTo(map);
+        // Smooth setLatLng — CSS transition handles visual tween
+        marker.setLatLng([pos.lat, pos.lng]);
 
-        // Richtingspijltje (richting volgende punt)
+        // Rotate arrow to heading (0°=east, 90°=north from interpolatePosition)
         if (pos.heading != null) {
-          marker.bindTooltip('▶', {
-            direction: 'center',
-            className: 'boat-direction',
-            offset: [0, 0],
-            opacity: 1,
-            permanent: true,
-          });
+          const el = marker.getElement();
+          if (el) {
+            const arrow = el.querySelector('.boat-arrow');
+            if (arrow) {
+              arrow.style.transform = `rotate(${(90 - pos.heading).toFixed(1)}deg)`;
+            }
+          }
         }
-
-        boatMarkers.push(marker);
       });
     }
 
