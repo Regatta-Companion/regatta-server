@@ -242,6 +242,9 @@
     let compareData = [];        // /compare-data response (GPX parsed)
     let selectedBoatIdx = [0, 1];
     let renderedLines = [];
+    let ghostLines = [];       // dim full tracks for context
+    let trailLines = [];       // traveled portion (bright)
+    let fadeSegments = [];     // tail gradient segments per boat
     let boatMarkers = [];        // Leaflet circle markers
     let currentClass = null;
 
@@ -529,9 +532,7 @@
 
     function drawAllTracks() {
       if (!map) return;
-      renderedLines.forEach(l => map.removeLayer(l));
-      renderedLines = [];
-      clearBoatMarkers();
+      clearAllLayers();
 
       const allBounds = [];
 
@@ -540,12 +541,21 @@
         const coords = getTrackCoords(cd, idx);
         if (coords.length < 2) return;
 
-        const line = L.polyline(coords, {
-          color: BOAT_COLORS[idx % BOAT_COLORS.length],
-          weight: 3,
-          opacity: 0.8,
+        const color = BOAT_COLORS[idx % BOAT_COLORS.length];
+
+        // Ghost line — dim context of the full track
+        const ghost = L.polyline(coords, {
+          color: color, weight: 2, opacity: 0.12,
         }).addTo(map);
-        renderedLines.push(line);
+        ghostLines.push(ghost);
+
+        // Traveled trail — starts empty, grows during playback
+        const trail = L.polyline([], {
+          color: color, weight: 3.5, opacity: 0.8,
+        }).addTo(map);
+        trailLines.push(trail);
+
+        fadeSegments.push([]);
 
         coords.forEach(c => allBounds.push(c));
       });
@@ -554,9 +564,22 @@
         map.fitBounds(L.latLngBounds(allBounds).pad(0.1));
       }
 
-      // Create boat markers ONCE — updateBoatMarkers moves them each frame
       initBoatMarkers();
       updateBoatMarkers();
+      updateTrails();
+    }
+
+    function clearAllLayers() {
+      [...ghostLines, ...trailLines, ...boatMarkers].forEach(l => {
+        try { map.removeLayer(l); } catch (_) {}
+      });
+      fadeSegments.forEach(arr => arr.forEach(l => {
+        try { map.removeLayer(l); } catch (_) {}
+      }));
+      ghostLines = [];
+      trailLines = [];
+      fadeSegments = [];
+      boatMarkers = [];
     }
 
     /* ────────────────────────────────────────────────────────────────
@@ -564,7 +587,7 @@
        ──────────────────────────────────────────────────────────────── */
 
     function clearBoatMarkers() {
-      boatMarkers.forEach(m => map.removeLayer(m));
+      boatMarkers.forEach(m => { try { map.removeLayer(m); } catch (_) {} });
       boatMarkers = [];
     }
 
@@ -613,6 +636,71 @@
               arrow.style.transform = `rotate(${(90 - pos.heading).toFixed(1)}deg)`;
             }
           }
+        }
+      });
+    }
+
+    /* ────────────────────────────────────────────────────────────────
+       TRAIL — traveled path groeit, staart vervaagt
+       ──────────────────────────────────────────────────────────────── */
+
+    function updateTrails() {
+      if (!map) return;
+
+      selectedBoatIdx.forEach((idx, bi) => {
+        const cd = compareData.find(d => d.id === tracks[idx]?.id);
+        if (!cd || cd.points.length < 2) return;
+
+        const color = BOAT_COLORS[idx % BOAT_COLORS.length];
+        const startTs = new Date(cd.points[0].time).getTime();
+        const TAIL_SEC = 18;
+
+        // Build traveled points and tail points
+        const traveled = [];
+        const tailPts = [];
+
+        for (const pt of cd.points) {
+          const t = (new Date(pt.time).getTime() - startTs) / 1000;
+          if (t <= currentTime) {
+            traveled.push([pt.lat, pt.lon]);
+            if (t > currentTime - TAIL_SEC) {
+              tailPts.push({ lat: pt.lat, lon: pt.lon, t });
+            }
+          } else {
+            break;
+          }
+        }
+
+        // Update main trail polyline
+        const trail = trailLines[bi];
+        if (trail) {
+          trail.setLatLngs(traveled.length >= 2 ? traveled : []);
+          trail.setStyle({ color, opacity: 0.8 });
+        }
+
+        // Clear old fade segments for this boat
+        (fadeSegments[bi] || []).forEach(s => {
+          try { map.removeLayer(s); } catch (_) {}
+        });
+        fadeSegments[bi] = [];
+
+        // Draw 4-segment fading tail
+        const TAIL_BANDS = 4;
+        const segSize = Math.max(1, Math.ceil((tailPts.length - 1) / TAIL_BANDS));
+
+        for (let s = 0; s < TAIL_BANDS; s++) {
+          const start = s * segSize;
+          const end = Math.min((s + 1) * segSize, tailPts.length - 1);
+          if (end <= start) continue;
+
+          const pts = tailPts.slice(start, end + 1).map(p => [p.lat, p.lon]);
+          const frac = (s + 1) / TAIL_BANDS; // 0.25 → 1.0
+          const opacity = 0.05 + frac * 0.55;   // 0.05 → 0.60
+
+          const seg = L.polyline(pts, {
+            color, weight: 3.5, opacity,
+          }).addTo(map);
+          fadeSegments[bi].push(seg);
         }
       });
     }
@@ -674,6 +762,7 @@
       if (currentTime >= totalDuration) {
         currentTime = 0;
         updateBoatMarkers();
+        updateTrails();
         drawCompareChart();
       }
       playing = true;
@@ -701,6 +790,7 @@
       }
 
       updateBoatMarkers();
+      updateTrails();
       updateTimelineUI();
       drawCompareChart(); // update cursor
 
@@ -711,6 +801,7 @@
       currentTime = (val / 1000) * totalDuration;
       if (currentTime >= totalDuration) currentTime = totalDuration;
       updateBoatMarkers();
+      updateTrails();
       updateTimelineUI();
       drawCompareChart();
     }
