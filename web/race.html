@@ -226,6 +226,17 @@
       background: transparent !important;
       border: none !important;
     }
+    .boat-marker-icon {
+      transition: transform 0.08s linear !important;
+    }
+    .boat-arrow {
+      width: 0; height: 0;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-top: 16px solid #ccc;
+      filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
+      transition: transform 0.08s linear, border-top-color 0.15s;
+    }
 
     /* ── Playback controls ── */
     .playback-bar {
@@ -423,22 +434,16 @@
     let map;
     let tracks = [];
     let activeTrackIdx = 0;
-    let trackLines = [];
-    let boatMarkers = [];
-    let playbackTimer = null;
-    let playbackSpeed = 1;
-    let playbackIdx = 0;
-
-    function getPlaybackInterval() {
-      // Real-time: 1x = race duurt even lang als in het echt
-      const track = tracks[activeTrackIdx];
-      if (!track) return 100;
-      const pointCount = (track._points && track._points.length) || track.point_count || 120;
-      if (pointCount < 2) return 100;
-      const durationSec = track.duration_seconds || pointCount; // fallback: 1s/punt
-      const realTimeMsPerPoint = (durationSec / pointCount) * 1000;
-      return Math.max(realTimeMsPerPoint / playbackSpeed, 16); // min 16ms (≈60fps)
-    }
+    let ghostLine = null;
+    let trailLine = null;
+    let fadeSegments = [];
+    let boatMarker = null;
+    let playing = false;
+    let currentTime = 0;
+    let totalDuration = 0;
+    let playSpeed = 1;
+    let animFrameId = null;
+    let lastFrameTs = null;
     let currentClass = null; // selected class name, null = all
 
     function getAvailableClasses(trackList) {
@@ -466,7 +471,8 @@
         return !currentClass || name === currentClass;
       });
       activeTrackIdx = first >= 0 ? first : 0;
-      playbackIdx = 0;
+      playing = false; if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+      currentTime = 0;
       if (document.getElementById('playback-slider')) document.getElementById('playback-slider').value = 0;
       document.getElementById('time-display') && (document.getElementById('time-display').textContent = '00:00');
       await loadTrackOnMap(activeTrackIdx);
@@ -554,8 +560,11 @@
         const slider = document.getElementById('playback-slider');
         if (slider) {
           slider.addEventListener('input', () => {
-            playbackIdx = parseInt(slider.value);
-            updatePlaybackPosition();
+            currentTime = (parseInt(slider.value) / 1000) * totalDuration;
+            updateBoatMarker();
+            updateTrails();
+            updateTimelineUI();
+            drawSpeedChart(activeTrackIdx);
           });
         }
 
@@ -563,35 +572,7 @@
           btn.addEventListener('click', () => {
             document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            playbackSpeed = parseFloat(btn.dataset.speed);
-            // Restart interval if currently playing so new speed takes effect
-            if (playbackTimer) {
-              clearInterval(playbackTimer);
-              const slider = document.getElementById('playback-slider');
-              playbackTimer = setInterval(() => {
-                playbackIdx++;
-                if (playbackIdx > parseInt(slider.max || 100)) {
-                  clearInterval(playbackTimer);
-                  playbackTimer = null;
-                  document.getElementById('play-btn').textContent = '\u25b6';
-                  playbackIdx = 0;
-                  slider.value = 0;
-                  document.querySelectorAll('.boat-item').forEach((el, i) => {
-                    if (i < tracks.length) {
-                      const t = tracks[i];
-                      const statsEl = el.querySelector('.boat-stats');
-                      if (statsEl) {
-                        statsEl.innerHTML = `<div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '\u2014'} kn</div><div class="l">gem</div></div>
-                          <div class="boat-s"><div class="v">${t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) : '\u2014'} kn</div><div class="l">max</div></div>`;
-                      }
-                    }
-                  });
-                  return;
-                }
-                slider.value = playbackIdx;
-                updatePlaybackPosition();
-              }, getPlaybackInterval());
-            }
+            playSpeed = parseFloat(btn.dataset.speed);
           });
         });
 
@@ -819,74 +800,52 @@
       return data ? Math.max(...data, 0.1) : null;
     }
 
-    function getPlaybackCoords(track) {
-      if (track._points && track._points.length > 0) {
-        return track._points.map(p => [p.lat, p.lon]);
-      }
-      return track._demoCoords || parseTrackCoords(track);
+    function clearTrackLayers() {
+      [ghostLine, trailLine, boatMarker].forEach(l => {
+        if (l) { try { map.removeLayer(l); } catch (_) {} }
+      });
+      fadeSegments.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+      ghostLine = null; trailLine = null; boatMarker = null; fadeSegments = [];
     }
 
     async function loadTrackOnMap(idx) {
-      trackLines.forEach(l => map.removeLayer(l));
-      trackLines = [];
-      boatMarkers.forEach(m => map.removeLayer(m));
-      boatMarkers = [];
-
+      clearTrackLayers();
       if (!tracks.length || idx >= tracks.length) return;
 
       const track = tracks[idx];
-
-      // Fetch real points from API
       const points = await fetchTrackPoints(track);
 
       if (!points || points.length < 2) {
-        // Fallback: generate demo track (no real GPX available)
         const center = [52.0, 4.5];
         const demo = generateSailingTrack(center);
-        const line = L.polyline(demo, {
-          color: BOAT_COLORS[idx % BOAT_COLORS.length],
-          weight: 3,
-          opacity: 0.85,
-        }).addTo(map);
-        trackLines.push(line);
-        map.fitBounds(line.getBounds().pad(0.1));
-
-        const end = demo[demo.length - 1];
-        const heading = calcHeading(demo[demo.length - 2][0], demo[demo.length - 2][1], end[0], end[1]);
-        const icon = createBoatIcon(BOAT_COLORS[idx % BOAT_COLORS.length], heading);
-        const marker = L.marker(end, { icon }).addTo(map);
-        marker.bindTooltip('Finish', { direction: 'top' });
-        boatMarkers.push(marker);
-
+        const clr = BOAT_COLORS[idx % BOAT_COLORS.length];
+        ghostLine = L.polyline(demo, { color: clr, weight: 2, opacity: 0.12 }).addTo(map);
+        trailLine = L.polyline([], { color: clr, weight: 3.5, opacity: 0.8 }).addTo(map);
+        map.fitBounds(L.latLngBounds(demo).pad(0.1));
+        boatMarker = L.marker(demo[0], { icon: L.divIcon({
+          className: 'boat-marker-icon',
+          html: '<div class="boat-arrow" style="border-top-color:' + clr + '"></div>',
+          iconSize: [16, 16], iconAnchor: [8, 10],
+        })}).addTo(map);
         track._demoCoords = demo;
+        totalDuration = 120;
         return;
       }
 
-      // Real track from GPX data
       const coords = points.map(p => [p.lat, p.lon]);
-      // Update slider max to match actual point count
-      const ptsSlider = document.getElementById('playback-slider');
-      if (ptsSlider) ptsSlider.max = coords.length - 1;
+      const clr = BOAT_COLORS[idx % BOAT_COLORS.length];
+      const startTs = new Date(points[0].time).getTime();
+      const endTs = new Date(points[points.length - 1].time).getTime();
+      totalDuration = (endTs - startTs) / 1000;
 
-      const line = L.polyline(coords, {
-        color: BOAT_COLORS[idx % BOAT_COLORS.length],
-        weight: 3,
-        opacity: 0.85,
-      }).addTo(map);
-      trackLines.push(line);
-      map.fitBounds(line.getBounds().pad(0.1));
-
-      if (coords.length > 0) {
-        const end = coords[coords.length - 1];
-        let heading = 0;
-        if (coords.length >= 2) {
-          heading = calcHeading(coords[coords.length - 2][0], coords[coords.length - 2][1], end[0], end[1]);
-        }
-        const icon = createBoatIcon(BOAT_COLORS[idx % BOAT_COLORS.length], heading);
-        const marker = L.marker(end, { icon }).addTo(map);
-        marker.bindTooltip('Finish', { direction: 'top' });
-        boatMarkers.push(marker);
-      }
+      ghostLine = L.polyline(coords, { color: clr, weight: 2, opacity: 0.12 }).addTo(map);
+      trailLine = L.polyline([], { color: clr, weight: 3.5, opacity: 0.8 }).addTo(map);
+      map.fitBounds(L.latLngBounds(coords).pad(0.1));
+      boatMarker = L.marker(coords[0], { icon: L.divIcon({
+        className: 'boat-marker-icon',
+        html: '<div class="boat-arrow" style="border-top-color:' + clr + '"></div>',
+        iconSize: [16, 16], iconAnchor: [8, 10],
+      })}).addTo(map);
     }
 
     function generateSailingTrack(center) {
@@ -1021,7 +980,7 @@
       ctx.stroke();
 
       // Active position dot
-      const dotIdx = Math.min(playbackIdx, speedData.length - 1);
+      const dotIdx = Math.min(Math.round((currentTime / totalDuration) * (speedData.length - 1)), speedData.length - 1);
       ctx.beginPath();
       ctx.arc(xPos(dotIdx), yPos(speedData[dotIdx]), 5, 0, Math.PI * 2);
       ctx.fillStyle = BOAT_COLORS[activeTrackIdx % BOAT_COLORS.length];
@@ -1088,135 +1047,83 @@
       await loadTrackOnMap(idx);
       drawSpeedChart(idx);
       updateInfoPanel(idx);
-      playbackIdx = 0;
+      playing = false; if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
+      currentTime = 0;
       const slider = document.getElementById('playback-slider');
       if (slider) slider.value = 0;
       document.getElementById('time-display').textContent = '00:00';
     }
 
-    // ── Boat icon ───────────────────────────────────────────────────────
-    function createBoatIcon(color, headingDeg) {
-      const h = headingDeg != null ? headingDeg : 0;
-      return L.divIcon({
-        className: 'boat-icon',
-        html: `<svg viewBox="-10 -12 20 24" width="24" height="28" style="transform:rotate(${h}deg);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))">
-          <polygon points="0,-11 -8,5 0,2 8,5" fill="${color}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-        </svg>`,
-        iconSize: [24, 28],
-        iconAnchor: [12, 14],
-        tooltipAnchor: [0, -16],
-      });
-    }
-
-    // Calculate heading between two coordinates (degrees from north)
-    function calcHeading(lat1, lon1, lat2, lon2) {
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const lat1r = lat1 * Math.PI / 180;
-      const lat2r = lat2 * Math.PI / 180;
-      const y = Math.sin(dLon) * Math.cos(lat2r);
-      const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
-      let deg = Math.atan2(y, x) * 180 / Math.PI;
-      return (deg + 360) % 360;
-    }
-
-    function updatePlaybackPosition() {
-      const track = tracks[activeTrackIdx];
-      const coords = getPlaybackCoords(track);
-      if (!coords.length) return;
-
-      // Map playbackIdx (0..max) proportionally to point index
-      const slider = document.getElementById('playback-slider');
-      const sliderMax = parseInt(slider.max) || 100;
-      const sliderPct = sliderMax > 0 ? playbackIdx / sliderMax : 0;
-      const idx2 = Math.min(Math.floor(sliderPct * (coords.length - 1)), coords.length - 1);
-      const pos = coords[idx2];
-
-      // Time based on proportion of total duration
-      const durationSec = track.duration_seconds || (coords.length * 5);
-      const elapsedSec = Math.floor(sliderPct * durationSec);
-      const mins = Math.floor(elapsedSec / 60);
-      const secs = elapsedSec % 60;
-      document.getElementById('time-display').textContent =
-        String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
-
-      // Calculate heading from current to next point
-      let heading = 0;
-      if (idx2 + 1 < coords.length) {
-        heading = calcHeading(pos[0], pos[1], coords[idx2 + 1][0], coords[idx2 + 1][1]);
-      } else if (idx2 > 0) {
-        heading = calcHeading(coords[idx2 - 1][0], coords[idx2 - 1][1], pos[0], pos[1]);
+    function interpolatePosition(idx) {
+      const track = tracks[idx];
+      if (!track) return null;
+      const pts = track._points;
+      if (!pts || pts.length < 2) return null;
+      const startTs = new Date(pts[0].time).getTime();
+      const targetTs = startTs + currentTime * 1000;
+      if (currentTime <= 0) return { lat: pts[0].lat, lng: pts[0].lon, heading: null, spd: pts[0].speed_kn || 0 };
+      if (currentTime >= totalDuration) { const l = pts[pts.length-1]; return { lat: l.lat, lng: l.lon, heading: null, spd: l.speed_kn || 0 }; }
+      for (let i = 0; i < pts.length-1; i++) {
+        const t0 = new Date(pts[i].time).getTime(), t1 = new Date(pts[i+1].time).getTime();
+        if (targetTs >= t0 && targetTs <= t1) {
+          const f = (t1-t0>0) ? (targetTs-t0)/(t1-t0) : 0;
+          return { lat: pts[i].lat + (pts[i+1].lat-pts[i].lat)*f, lng: pts[i].lon + (pts[i+1].lon-pts[i].lon)*f,
+            heading: Math.atan2(pts[i+1].lat-pts[i].lat, pts[i+1].lon-pts[i].lon)*180/Math.PI,
+            spd: (pts[i].speed_kn||0) + ((pts[i+1].speed_kn||0) - (pts[i].speed_kn||0))*f };
+        }
       }
+      return null;
+    }
 
-      // Live speed from speed data
-      const speedData = getSpeedData(track);
-      const spd = speedData[Math.min(idx2, speedData.length - 1)];
-
-      const color = BOAT_COLORS[activeTrackIdx % BOAT_COLORS.length];
-
-      boatMarkers.forEach(m => map.removeLayer(m));
-      boatMarkers = [];
-      const icon = createBoatIcon(color, heading);
-      const marker = L.marker(pos, { icon }).addTo(map);
-      marker.bindTooltip(`${spd.toFixed(1)} kn · ${Math.round(heading)}°`, {
-        direction: 'top', offset: [0, -12], permanent: true,
-        className: 'boat-tooltip',
-      });
-      boatMarkers.push(marker);
-
-      // Update active boat in list with live speed
+    function updateBoatMarker() {
+      if (!boatMarker || !map) return;
+      const pos = interpolatePosition(activeTrackIdx);
+      if (!pos) return;
+      boatMarker.setLatLng([pos.lat, pos.lng]);
+      if (pos.heading != null) {
+        const el = boatMarker.getElement();
+        if (el) { const a = el.querySelector('.boat-arrow'); if (a) a.style.transform = 'rotate(' + ((90-pos.heading).toFixed(1)) + 'deg)'; }
+      }
       document.querySelectorAll('.boat-item').forEach(el => {
-        const i = parseInt(el.dataset.idx);
-        if (i === activeTrackIdx) {
-          const statsEl = el.querySelector('.boat-stats');
-          if (statsEl) {
-            statsEl.innerHTML = `
-              <div class="boat-s"><div class="v">${spd.toFixed(1)} kn</div><div class="l">nu</div></div>
-              <div class="boat-s"><div class="v">${Math.round(heading)}°</div><div class="l">koers</div></div>`;
-          }
+        if (parseInt(el.dataset.idx) === activeTrackIdx) {
+          const s = el.querySelector('.boat-stats');
+          if (s) s.innerHTML = '<div class="boat-s"><div class="v">' + pos.spd.toFixed(1) + ' kn</div><div class="l">nu</div></div><div class="boat-s"><div class="v">' + (pos.heading!=null?Math.round(pos.heading):0) + '°</div><div class="l">koers</div></div>';
         }
       });
-
-      drawSpeedChart(activeTrackIdx);
     }
 
-    function togglePlayback() {
-      const btn = document.getElementById('play-btn');
-      if (playbackTimer) {
-        clearInterval(playbackTimer);
-        playbackTimer = null;
-        btn.textContent = '▶';
-        return;
-      }
-
-      btn.textContent = '⏸';
-      playbackTimer = setInterval(() => {
-        const slider = document.getElementById('playback-slider');
-        playbackIdx++;
-        if (playbackIdx > parseInt(slider.max || 100)) {
-          clearInterval(playbackTimer);
-          playbackTimer = null;
-          btn.textContent = '▶';
-          playbackIdx = 0;
-          slider.value = 0;
-          // Reset boat stats
-          document.querySelectorAll('.boat-item').forEach((el, i) => {
-            if (i < tracks.length) {
-              const t = tracks[i];
-              const statsEl = el.querySelector('.boat-stats');
-              if (statsEl) {
-                statsEl.innerHTML = `
-                  <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
-                  <div class="boat-s"><div class="v">${t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) : '—'} kn</div><div class="l">max</div></div>`;
-              }
-            }
-          });
-          updatePlaybackPosition();
-          return;
-        }
-        slider.value = playbackIdx;
-        updatePlaybackPosition();
-      }, getPlaybackInterval());
+    function updateTrails() {
+      if (!map || !trailLine) return;
+      const pts = tracks[activeTrackIdx]?._points; if (!pts || pts.length < 2) return;
+      const startTs = new Date(pts[0].time).getTime();
+      const clr = BOAT_COLORS[activeTrackIdx % BOAT_COLORS.length];
+      const TAIL=18; const traveled=[], tail=[];
+      for (const p of pts) { const t = (new Date(p.time).getTime()-startTs)/1000; if (t<=currentTime) { traveled.push([p.lat,p.lon]); if (t>currentTime-TAIL) tail.push({lat:p.lat,lon:p.lon,t}); } else break; }
+      trailLine.setLatLngs(traveled.length>=2?traveled:[]); trailLine.setStyle({color:clr,opacity:0.8});
+      fadeSegments.forEach(l=>{try{map.removeLayer(l)}catch(_){}}); fadeSegments=[];
+      const B=4, sz=Math.max(1,Math.ceil((tail.length-1)/B));
+      for(let s=0;s<B;s++){const a=s*sz,b=Math.min((s+1)*sz,tail.length-1);if(b<=a)continue;
+        fadeSegments.push(L.polyline(tail.slice(a,b+1).map(p=>[p.lat,p.lon]),{color:clr,weight:3.5,opacity:0.05+((s+1)/B)*0.55}).addTo(map));}
     }
+
+    function updateTimelineUI() {
+      const sl = document.getElementById('playback-slider'), dp = document.getElementById('time-display');
+      if (sl) sl.value = totalDuration>0 ? Math.round((currentTime/totalDuration)*1000) : 0;
+      if (dp) dp.textContent = fmtDuration(currentTime);
+    }
+
+    function startPlayback() {
+      if (currentTime >= totalDuration) { currentTime=0; updateBoatMarker(); updateTrails(); }
+      playing=true; lastFrameTs=performance.now(); document.getElementById('play-btn').textContent='⏸'; animLoop(lastFrameTs);
+    }
+    function stopPlayback() { playing=false; if(animFrameId){cancelAnimationFrame(animFrameId);animFrameId=null;} document.getElementById('play-btn').textContent='▶'; }
+    function animLoop(now) {
+      if(!playing)return; const dt=(now-lastFrameTs)/1000; lastFrameTs=now; currentTime+=dt*playSpeed;
+      if(currentTime>=totalDuration){currentTime=totalDuration;stopPlayback();}
+      updateBoatMarker(); updateTrails(); updateTimelineUI(); drawSpeedChart(activeTrackIdx);
+      animFrameId=requestAnimationFrame(animLoop);
+    }
+    function togglePlayback() { if(playing) stopPlayback(); else startPlayback(); }
 
     // ── Load individual track ────────────────────────────────────────────
     async function loadSingleTrack(tid, container) {
@@ -1287,12 +1194,12 @@
         // We coords but need to wrap as pseudo-track for the map functions
         tracks = [Object.assign({}, track, { _coords: displayCoords })];
         initMap();
-        const line = L.polyline(displayCoords, {
+        ghostLine = L.polyline(displayCoords, {
           color: BOAT_COLORS[0],
-          weight: 3,
-          opacity: 0.85,
+          weight: 2,
+          opacity: 0.12,
         }).addTo(map);
-        trackLines.push(line);
+        // ghost already set
         map.fitBounds(line.getBounds().pad(0.1));
 
         if (displayCoords.length > 0) {
