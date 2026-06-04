@@ -45,6 +45,28 @@
     .toast-ok { background: color-mix(in oklch, var(--green), transparent 88%); color: var(--green); }
     .toast-err { background: color-mix(in oklch, var(--red), transparent 88%); color: var(--red); }
 
+    .btn-danger {
+      width: 100%; padding: 11px; background: transparent; color: var(--red);
+      border: 1px solid var(--red); border-radius: var(--radius-sm);
+      font-family: var(--font-body); font-size: 14px; cursor: pointer;
+      margin-top: 8px; transition: background 0.15s;
+    }
+    .btn-danger:hover { background: color-mix(in oklch, var(--red), transparent 92%); }
+
+    .status-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 0; border-bottom: 1px solid var(--border);
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-row .label { font-size: 13px; color: var(--muted); }
+    .status-row .value { font-size: 13px; font-weight: 600; font-family: var(--font-mono); }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .status-dot.connected { background: var(--green); }
+    .status-dot.disconnected { background: var(--muted); }
+    .garmin-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .spinner-inline { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     @media (max-width: 640px) {
       .profile-page { padding: 14px 14px 80px; }
     }
@@ -77,10 +99,9 @@
     </div>
 
     <div class="card" style="text-align:center;padding:16px 24px">
-      <a href="garmin.html" style="font-size:14px;color:var(--accent);text-decoration:none;font-weight:600">
-        ⛵ Garmin Connect koppelen →
-      </a>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Automatisch zeiltracks importeren van je Garmin horloge</div>
+      <div id="garmin-section">
+        <div id="garmin-loading" style="text-align:center;padding:20px;color:var(--muted)">Laden…</div>
+      </div>
     </div>
   </div>
 
@@ -135,6 +156,92 @@
     }
 
     loadProfile();
+
+    // ── Garmin Connect inline ─────────────────────────────────
+
+    async function loadGarminStatus() {
+      try {
+        const data = await apiGet('/garmin/status');
+        renderGarminSection(data);
+      } catch (e) {
+        document.getElementById('garmin-loading').innerHTML =
+          '<span style="color:var(--muted)">Kon Garmin-status niet laden.</span>';
+      }
+    }
+
+    function renderGarminSection(data) {
+      const el = document.getElementById('garmin-section');
+      const linked = data.linked;
+      el.innerHTML = `
+        <h3 style="font-size:16px;font-weight:700;margin-bottom:12px">⛵ Garmin Connect</h3>
+        <div class="status-row">
+          <span class="label"><span class="status-dot ${linked ? 'connected' : 'disconnected'}"></span>Status</span>
+          <span class="value">${linked ? 'Gekoppeld' : 'Niet gekoppeld'}</span>
+        </div>
+        ${linked ? `
+          <div class="status-row">
+            <span class="label">Laatste sync</span>
+            <span class="value">${data.last_sync_at ? fmtDate(data.last_sync_at) : 'Nog niet'}</span>
+          </div>
+        ` : ''}
+        <div style="margin-top:12px">
+          ${linked ? `
+            <button class="btn-save" style="margin-bottom:6px" onclick="syncGarmin()">Nu synchroniseren</button>
+            <button class="btn-danger" onclick="disconnectGarmin()">Ontkoppelen</button>
+          ` : `
+            <div class="field">
+              <label for="gc-email">Garmin Connect e-mail</label>
+              <input id="gc-email" type="email" class="input" placeholder="jouw@email.com" autocomplete="username" />
+            </div>
+            <div class="field">
+              <label for="gc-password">Garmin Connect wachtwoord</label>
+              <input id="gc-password" type="password" class="input" placeholder="••••••••" autocomplete="current-password" />
+              <div class="garmin-hint">Alleen zeilactiviteiten (sailing) worden opgehaald.</div>
+            </div>
+            <button class="btn-save" onclick="connectGarmin()">Koppelen</button>
+          `}
+        </div>
+      `;
+    }
+
+    async function connectGarmin() {
+      const email = document.getElementById('gc-email').value.trim();
+      const password = document.getElementById('gc-password').value;
+      if (!email || !password) { showToast('Vul e-mail en wachtwoord in.', 'err'); return; }
+      try {
+        await apiPost('/garmin/connect', { email, password });
+        showToast('Garmin Connect gekoppeld!', 'ok');
+        loadGarminStatus();
+      } catch (e) {
+        showToast('Koppelen mislukt: ' + (e.message || 'onbekende fout'), 'err');
+      }
+    }
+
+    async function disconnectGarmin() {
+      if (!confirm('Weet je zeker dat je Garmin Connect wilt ontkoppelen?')) return;
+      try {
+        await fetch(API + '/garmin/connect', { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + getToken() }});
+        showToast('Garmin Connect ontkoppeld.', 'ok');
+        loadGarminStatus();
+      } catch (e) {
+        showToast('Ontkoppelen mislukt.', 'err');
+      }
+    }
+
+    async function syncGarmin() {
+      try {
+        const btn = document.querySelector('#garmin-section .btn-save');
+        btn.disabled = true; btn.innerHTML = '<span class="spinner-inline"></span> Synchroniseren…';
+        const res = await apiPost('/garmin/sync', {});
+        showToast(res.message || 'Sync gestart! Tracks verschijnen straks onder Mijn tracks.', 'ok');
+        setTimeout(() => loadGarminStatus(), 5000);
+      } catch (e) {
+        showToast('Sync mislukt: ' + (e.message || 'onbekende fout'), 'err');
+        loadGarminStatus();
+      }
+    }
+
+    loadGarminStatus();
   </script>
 </body>
 </html>
