@@ -143,7 +143,14 @@ def main():
         if a.get("activityType", {}).get("typeKey", "").lower() == "sailing"
     ]
 
+    # Debug: toon alle gevonden activity types
+    type_counts = {}
+    for a in activities:
+        t = a.get("activityType", {}).get("typeKey", "onbekend")
+        type_counts[t] = type_counts.get(t, 0) + 1
     print(f"  {len(activities)} activiteiten, {len(sailing)} zeil-activiteiten")
+    if type_counts:
+        print(f"  Types: {', '.join(f'{k}({v})' for k,v in sorted(type_counts.items(), key=lambda x:-x[1]))}")
 
     if not sailing:
         print("  Geen zeil-activiteiten gevonden.")
