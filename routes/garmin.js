@@ -150,9 +150,10 @@ function createGarminRouter(db) {
         // Capture last 3 meaningful lines as result summary
         const lines = stdout.split('\n').filter(l => l.trim());
         const summary = lines.slice(-3).join(' | ');
+        const errSummary = stderr.split('\n').filter(l => l.trim()).slice(-3).join(' | ');
         db.prepare(
-          `UPDATE garmin_links SET last_sync_at = datetime('now'), sync_result = ?, sync_stderr = '' WHERE user_id = ?`
-        ).run(summary || 'Sync OK (geen output)', req.userId);
+          `UPDATE garmin_links SET last_sync_at = datetime('now'), sync_result = ?, sync_stderr = ? WHERE user_id = ?`
+        ).run(summary || 'Sync OK (geen output)', errSummary || '', req.userId);
         console.log(`[garmin] Sync OK voor user ${req.userId}: ${summary}`);
       } else {
         const errMsg = stderr.slice(-500) || `exit code ${code}`;
