@@ -147,13 +147,13 @@ function createGarminRouter(db) {
 
     child.on('close', (code) => {
       if (code === 0) {
-        // Update sync result
-        const match = stdout.match(/Klaar: (\d+) geüpload/);
-        const uploaded = match ? parseInt(match[1]) : 0;
+        // Capture last 3 meaningful lines as result summary
+        const lines = stdout.split('\n').filter(l => l.trim());
+        const summary = lines.slice(-3).join(' | ');
         db.prepare(
           `UPDATE garmin_links SET last_sync_at = datetime('now'), sync_result = ?, sync_stderr = '' WHERE user_id = ?`
-        ).run(`Klaar: ${uploaded} tracks geüpload`, req.userId);
-        console.log(`[garmin] Sync OK voor user ${req.userId}: ${uploaded} tracks geüpload`);
+        ).run(summary || 'Sync OK (geen output)', req.userId);
+        console.log(`[garmin] Sync OK voor user ${req.userId}: ${summary}`);
       } else {
         const errMsg = stderr.slice(-500) || `exit code ${code}`;
         db.prepare(

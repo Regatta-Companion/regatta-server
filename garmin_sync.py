@@ -131,7 +131,7 @@ def main():
     # ── Get recent activities ──
     print("→ Activiteiten ophalen...")
     try:
-        activities = client.get_activities(0, 50)  # last 50 activities
+        activities = client.get_activities(0, 100)  # last 100 activities
     except Exception as e:
         print(f"ERROR: Kon activiteiten niet ophalen: {e}", file=sys.stderr)
         sys.exit(5)
