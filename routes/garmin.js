@@ -100,8 +100,9 @@ function createGarminRouter(db) {
       return res.status(500).json({ error: 'Kon Garmin-credentials niet ontsleutelen. Koppel opnieuw.' });
     }
 
-    // Build the API base URL for the script
-    const apiBase = `${req.protocol}://${req.get('host')}/api`;
+    // Build the API base URL — use localhost zodat de server zichzelf kan bereiken
+    const port = process.env.PORT || 3000;
+    const apiBase = `http://127.0.0.1:${port}/api`;
 
     // Generate a temporary token that only works for track upload
     const jwt = require('jsonwebtoken');
