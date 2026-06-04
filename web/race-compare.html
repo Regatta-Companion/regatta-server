@@ -602,7 +602,7 @@
         });
 
         const marker = L.marker([0, 0], { icon }).addTo(map);
-        const bName = tracks[idx]?.name || tracks[idx]?.filename || ('Boot ' + (idx+1));
+        const bName = tracks[idx]?.boat_name || tracks[idx]?.name || tracks[idx]?.filename || ('Boot ' + (idx+1));
         marker.bindTooltip(bName, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
         boatMarkers.push(marker);
       });
@@ -623,7 +623,7 @@
 
         // Smooth setLatLng — CSS transition handles visual tween
         marker.setLatLng([pos.lat, pos.lng]);
-        const bName2 = tracks[idx]?.name || tracks[idx]?.filename || ('Boot ' + (idx+1));
+        const bName2 = tracks[idx]?.boat_name || tracks[idx]?.name || tracks[idx]?.filename || ('Boot ' + (idx+1));
         const hdg2 = pos.heading != null ? Math.round(pos.heading) : 0;
         marker.setTooltipContent(bName2 + '<br><span style="font-size:10px">' + pos.spd.toFixed(1) + ' kn · ' + hdg2 + '°</span>');
 

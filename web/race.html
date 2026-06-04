@@ -817,12 +817,13 @@
         ghostLine = L.polyline(demo, { color: clr, weight: 2, opacity: 0.12 }).addTo(map);
         trailLine = L.polyline([], { color: clr, weight: 3.5, opacity: 0.8 }).addTo(map);
         map.fitBounds(L.latLngBounds(demo).pad(0.1));
-        const bName = track.name || track.filename || ('Boot ' + (idx+1));
+        const boatLabel = track.boat_name || track.name || track.filename || ('Boot ' + (idx+1));
+        const tooltipHtml = boatLabel + '<br><span style="font-size:10px">0.0 kn · 0°</span>';
         boatMarker = L.marker(demo[0], { icon: L.divIcon({
           className: 'boat-marker-icon',
           html: '<svg class="boat-icon-svg" viewBox="-10 -10 20 20" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"><path d="M-8,8 L8,8 L3,-5 L0,-10 L-3,-5 Z" fill="' + clr + '" stroke="#fff" stroke-width="1.2"/></svg>',
           iconSize: [22, 22], iconAnchor: [11, 11],
-        })}).addTo(map).bindTooltip(bName, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
+        })}).addTo(map).bindTooltip(tooltipHtml, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
         track._demoCoords = demo;
         totalDuration = 120;
         return;
@@ -837,12 +838,13 @@
       ghostLine = L.polyline(coords, { color: clr, weight: 2, opacity: 0.12 }).addTo(map);
       trailLine = L.polyline([], { color: clr, weight: 3.5, opacity: 0.8 }).addTo(map);
       map.fitBounds(L.latLngBounds(coords).pad(0.1));
-      const bName = track.name || track.filename || ('Boot ' + (idx+1));
+      const boatLabel = track.boat_name || track.name || track.filename || ('Boot ' + (idx+1));
+      const tooltipHtml = boatLabel + '<br><span style="font-size:10px">0.0 kn · 0°</span>';
       boatMarker = L.marker(coords[0], { icon: L.divIcon({
         className: 'boat-marker-icon',
         html: '<svg class="boat-icon-svg" viewBox="-10 -10 20 20" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"><path d="M-8,8 L8,8 L3,-5 L0,-10 L-3,-5 Z" fill="' + clr + '" stroke="#fff" stroke-width="1.2"/></svg>',
         iconSize: [22, 22], iconAnchor: [11, 11],
-      })}).addTo(map).bindTooltip(bName, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
+      })}).addTo(map).bindTooltip(tooltipHtml, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
     }
 
     function generateSailingTrack(center) {
@@ -1081,6 +1083,11 @@
         const el = boatMarker.getElement();
         if (el) { const a = el.querySelector('.boat-icon-svg'); if (a) a.style.transform = 'rotate(' + pos.heading.toFixed(1) + 'deg)'; }
       }
+      // Update tooltip with live speed + heading
+      const track = tracks[activeTrackIdx];
+      const boatLabel = track?.boat_name || track?.name || track?.filename || ('Boot ' + (activeTrackIdx+1));
+      const hdg = pos.heading != null ? Math.round(pos.heading) : 0;
+      boatMarker.setTooltipContent(boatLabel + '<br><span style="font-size:10px">' + pos.spd.toFixed(1) + ' kn · ' + hdg + '°</span>');
       // Update boat list
       document.querySelectorAll('.boat-item').forEach(el => {
         if (parseInt(el.dataset.idx) === activeTrackIdx) {
