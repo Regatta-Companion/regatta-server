@@ -136,11 +136,11 @@ def main():
         print(f"ERROR: Kon activiteiten niet ophalen: {e}", file=sys.stderr)
         sys.exit(5)
 
-    # Filter: alleen sailing
+    # Filter: sailing (zowel 'sailing' als nieuwere 'sailing_v2')
     sailing = [
         a
         for a in activities
-        if a.get("activityType", {}).get("typeKey", "").lower() == "sailing"
+        if a.get("activityType", {}).get("typeKey", "").lower() in ("sailing", "sailing_v2")
     ]
 
     # Debug: toon alle gevonden activity types
