@@ -1056,11 +1056,26 @@
 
     function computeSmoothedHeadings(points, windowSize) {
       // Bereken heading voor elk punt als bearing over windowSize punten vooruit/achteruit.
-      // Dit filtert GPS-ruis: een boot verandert niet 30° per seconde.
+      // Stopt bij GPS-gaten (>5 sec) om te voorkomen dat de koers over een gat heen
+      // een verkeerde richting krijgt.
       const n = points.length;
+      const MAX_GAP = 5; // seconden
       for (let i = 0; i < n; i++) {
-        const lo = Math.max(0, i - windowSize);
-        const hi = Math.min(n - 1, i + windowSize);
+        let lo = i, hi = i;
+        // Stap naar links tot windowSize of tot een gat
+        for (let s = 0; s < windowSize && lo > 0; s++) {
+          const gap = points[lo].time && points[lo-1].time
+            ? (new Date(points[lo].time) - new Date(points[lo-1].time)) / 1000 : 0;
+          if (gap > MAX_GAP) break;
+          lo--;
+        }
+        // Stap naar rechts tot windowSize of tot een gat
+        for (let s = 0; s < windowSize && hi < n-1; s++) {
+          const gap = points[hi+1].time && points[hi].time
+            ? (new Date(points[hi+1].time) - new Date(points[hi].time)) / 1000 : 0;
+          if (gap > MAX_GAP) break;
+          hi++;
+        }
         const dLon = points[hi].lon - points[lo].lon;
         const dLat = points[hi].lat - points[lo].lat;
         points[i]._hdg = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
