@@ -229,13 +229,8 @@
     .boat-marker-icon {
       transition: transform 0.08s linear !important;
     }
-    .boat-arrow {
-      width: 0; height: 0;
-      border-left: 8px solid transparent;
-      border-right: 8px solid transparent;
-      border-top: 16px solid #ccc;
-      filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
-      transition: transform 0.08s linear, border-top-color 0.15s;
+    .boat-icon-svg {
+      transition: transform 0.08s linear;
     }
 
     /* ── Playback controls ── */
@@ -708,7 +703,7 @@
           <button class="play-btn" id="play-btn">▶</button>
           <span class="time-display" id="time-display">00:00</span>
           <div class="slider-container">
-            <input type="range" id="playback-slider" min="0" max="100" value="0" />
+            <input type="range" id="playback-slider" min="0" max="1000" value="0" />
           </div>
           <button class="speed-btn active" data-speed="1">1×</button>
           <button class="speed-btn" data-speed="2">2×</button>
@@ -824,8 +819,8 @@
         map.fitBounds(L.latLngBounds(demo).pad(0.1));
         boatMarker = L.marker(demo[0], { icon: L.divIcon({
           className: 'boat-marker-icon',
-          html: '<div class="boat-arrow" style="border-top-color:' + clr + '"></div>',
-          iconSize: [16, 16], iconAnchor: [8, 10],
+          html: '<svg class="boat-icon-svg" viewBox="-10 -10 20 20" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"><path d="M-8,8 L8,8 L3,-5 L0,-10 L-3,-5 Z" fill="' + clr + '" stroke="#fff" stroke-width="1.2"/></svg>',
+          iconSize: [22, 22], iconAnchor: [11, 11],
         })}).addTo(map);
         track._demoCoords = demo;
         totalDuration = 120;
@@ -843,8 +838,8 @@
       map.fitBounds(L.latLngBounds(coords).pad(0.1));
       boatMarker = L.marker(coords[0], { icon: L.divIcon({
         className: 'boat-marker-icon',
-        html: '<div class="boat-arrow" style="border-top-color:' + clr + '"></div>',
-        iconSize: [16, 16], iconAnchor: [8, 10],
+        html: '<svg class="boat-icon-svg" viewBox="-10 -10 20 20" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"><path d="M-8,8 L8,8 L3,-5 L0,-10 L-3,-5 Z" fill="' + clr + '" stroke="#fff" stroke-width="1.2"/></svg>',
+        iconSize: [22, 22], iconAnchor: [11, 11],
       })}).addTo(map);
     }
 
@@ -1068,7 +1063,7 @@
         if (targetTs >= t0 && targetTs <= t1) {
           const f = (t1-t0>0) ? (targetTs-t0)/(t1-t0) : 0;
           return { lat: pts[i].lat + (pts[i+1].lat-pts[i].lat)*f, lng: pts[i].lon + (pts[i+1].lon-pts[i].lon)*f,
-            heading: Math.atan2(pts[i+1].lat-pts[i].lat, pts[i+1].lon-pts[i].lon)*180/Math.PI,
+            heading: (Math.atan2(pts[i+1].lon-pts[i].lon, pts[i+1].lat-pts[i].lat)*180/Math.PI + 360) % 360,
             spd: (pts[i].speed_kn||0) + ((pts[i+1].speed_kn||0) - (pts[i].speed_kn||0))*f };
         }
       }
@@ -1082,14 +1077,20 @@
       boatMarker.setLatLng([pos.lat, pos.lng]);
       if (pos.heading != null) {
         const el = boatMarker.getElement();
-        if (el) { const a = el.querySelector('.boat-arrow'); if (a) a.style.transform = 'rotate(' + ((90-pos.heading).toFixed(1)) + 'deg)'; }
+        if (el) { const a = el.querySelector('.boat-icon-svg'); if (a) a.style.transform = 'rotate(' + pos.heading.toFixed(1) + 'deg)'; }
       }
+      // Update boat list
       document.querySelectorAll('.boat-item').forEach(el => {
         if (parseInt(el.dataset.idx) === activeTrackIdx) {
           const s = el.querySelector('.boat-stats');
           if (s) s.innerHTML = '<div class="boat-s"><div class="v">' + pos.spd.toFixed(1) + ' kn</div><div class="l">nu</div></div><div class="boat-s"><div class="v">' + (pos.heading!=null?Math.round(pos.heading):0) + '°</div><div class="l">koers</div></div>';
         }
       });
+      // Update info panel
+      const elSpd = document.getElementById('info-speed');
+      const elHdg = document.getElementById('info-heading');
+      if (elSpd) elSpd.textContent = pos.spd.toFixed(1) + ' kn';
+      if (elHdg) elHdg.textContent = (pos.heading != null ? Math.round(pos.heading) : 0) + '°';
     }
 
     function updateTrails() {
