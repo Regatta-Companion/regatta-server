@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { XMLParser } = require('fast-xml-parser');
 const { authMiddleware } = require('../middleware/auth');
+const { smoothPoints } = require('../lib/smooth');
 
 // ── Haversine distance (metres) between two lat/lon pairs ─────────────────
 function haversine(lat1, lon1, lat2, lon2) {
@@ -365,12 +366,15 @@ function createTracksRouter(db, tracksDir) {
         points.push(entry);
       }
 
+      // Smooth GPS data: filtert ruis uit snelheid en positie
+      const smoothed = smoothPoints(points);
+
       return res.json({
         id: track.id,
         name: track.name,
         filename: track.filename,
         recorded_at: track.recorded_at,
-        points,
+        points: smoothed,
         point_count: points.length,
         max_speed_kn: Math.round(maxSpd * 10) / 10,
       });

@@ -774,6 +774,7 @@
         track._fetching = apiGet('/tracks/' + track.id + '/points');
         const data = await track._fetching;
         track._points = data.points || [];
+        if (track._points.length >= 2) computeSmoothedHeadings(track._points, 5);
         track._maxSpeedKn = data.max_speed_kn || track.max_speed_knots || 0;
         delete track._fetching;
         return track._points;
@@ -1053,6 +1054,19 @@
       document.getElementById('time-display').textContent = '00:00';
     }
 
+    function computeSmoothedHeadings(points, windowSize) {
+      // Bereken heading voor elk punt als bearing over windowSize punten vooruit/achteruit.
+      // Dit filtert GPS-ruis: een boot verandert niet 30° per seconde.
+      const n = points.length;
+      for (let i = 0; i < n; i++) {
+        const lo = Math.max(0, i - windowSize);
+        const hi = Math.min(n - 1, i + windowSize);
+        const dLon = points[hi].lon - points[lo].lon;
+        const dLat = points[hi].lat - points[lo].lat;
+        points[i]._hdg = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+      }
+    }
+
     function interpolatePosition(idx) {
       const track = tracks[idx];
       if (!track) return null;
@@ -1060,14 +1074,14 @@
       if (!pts || pts.length < 2) return null;
       const startTs = new Date(pts[0].time).getTime();
       const targetTs = startTs + currentTime * 1000;
-      if (currentTime <= 0) return { lat: pts[0].lat, lng: pts[0].lon, heading: null, spd: pts[0].speed_kn || 0 };
-      if (currentTime >= totalDuration) { const l = pts[pts.length-1]; return { lat: l.lat, lng: l.lon, heading: null, spd: l.speed_kn || 0 }; }
+      if (currentTime <= 0) return { lat: pts[0].lat, lng: pts[0].lon, heading: pts[0]._hdg || null, spd: pts[0].speed_kn || 0 };
+      if (currentTime >= totalDuration) { const l = pts[pts.length-1]; return { lat: l.lat, lng: l.lon, heading: l._hdg || null, spd: l.speed_kn || 0 }; }
       for (let i = 0; i < pts.length-1; i++) {
         const t0 = new Date(pts[i].time).getTime(), t1 = new Date(pts[i+1].time).getTime();
         if (targetTs >= t0 && targetTs <= t1) {
           const f = (t1-t0>0) ? (targetTs-t0)/(t1-t0) : 0;
           return { lat: pts[i].lat + (pts[i+1].lat-pts[i].lat)*f, lng: pts[i].lon + (pts[i+1].lon-pts[i].lon)*f,
-            heading: (Math.atan2(pts[i+1].lon-pts[i].lon, pts[i+1].lat-pts[i].lat)*180/Math.PI + 360) % 360,
+            heading: pts[i]._hdg != null ? pts[i]._hdg : null,
             spd: (pts[i].speed_kn||0) + ((pts[i+1].speed_kn||0) - (pts[i].speed_kn||0))*f };
         }
       }

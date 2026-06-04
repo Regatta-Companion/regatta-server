@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 const { authMiddleware, adminMiddleware, seriesAccessMiddleware, raceAccessMiddleware } = require('../middleware/auth');
+const { smoothPoints } = require('../lib/smooth');
 
 // ── Haversine afstand in meters ────────────────────────────────────────────
 function haversineM(lat1, lon1, lat2, lon2) {
@@ -277,11 +278,14 @@ function createRacesRouter(db, tracksDir) {
           points.push(entry);
         }
 
+        // Smooth GPS data: filtert ruis uit snelheid en positie
+        const smoothed = smoothPoints(points);
+
         results.push({
           id: trackId,
           label: link.name || link.filename,
           color_index: i,
-          points,
+          points: smoothed,
           start_time: points[0].time || null,
           end_time: points[points.length - 1].time || null,
           point_count: points.length,

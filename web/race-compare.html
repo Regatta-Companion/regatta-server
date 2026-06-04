@@ -350,6 +350,7 @@
       let minT = Infinity, maxT = -Infinity;
       for (const cd of compareData) {
         if (cd.points.length > 0) {
+          computeSmoothedHeadings(cd.points, 5);
           const t0 = new Date(cd.points[0].time).getTime();
           const t1 = new Date(cd.points[cd.points.length - 1].time).getTime();
           if (t0 < minT) minT = t0;
@@ -705,8 +706,20 @@
       });
     }
 
+    function computeSmoothedHeadings(points, windowSize) {
+      // Bereken heading voor elk punt als bearing over windowSize punten vooruit/achteruit.
+      const n = points.length;
+      for (let i = 0; i < n; i++) {
+        const lo = Math.max(0, i - windowSize);
+        const hi = Math.min(n - 1, i + windowSize);
+        const dLon = points[hi].lon - points[lo].lon;
+        const dLat = points[hi].lat - points[lo].lat;
+        points[i]._hdg = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+      }
+    }
+
     /**
-     * Interpoleer bootpositie op een gegeven tijd (in seconden vanaf de
+     * Interpoleer positie op een gegeven relatieve tijd (seconden vanaf
      * vroegste starttijd van alle tracks).
      */
     function interpolatePosition(cd, relTime) {
@@ -720,11 +733,11 @@
 
       // Before first point or after last point
       if (relTime <= 0) {
-        return { lat: cd.points[0].lat, lng: cd.points[0].lon, heading: null };
+        return { lat: cd.points[0].lat, lng: cd.points[0].lon, heading: cd.points[0]._hdg || null, spd: cd.points[0].speed_kn || 0 };
       }
       if (relTime >= trackDuration) {
         const last = cd.points[cd.points.length - 1];
-        return { lat: last.lat, lng: last.lon, heading: null };
+        return { lat: last.lat, lng: last.lon, heading: last._hdg || null, spd: last.speed_kn || 0 };
       }
 
       // Find the two points the target time falls between
@@ -739,10 +752,8 @@
           return {
             lat: cd.points[i].lat + (cd.points[i + 1].lat - cd.points[i].lat) * frac,
             lng: cd.points[i].lon + (cd.points[i + 1].lon - cd.points[i].lon) * frac,
-            heading: (Math.atan2(
-              cd.points[i + 1].lon - cd.points[i].lon,
-              cd.points[i + 1].lat - cd.points[i].lat
-            ) * 180 / Math.PI + 360) % 360,
+            heading: cd.points[i]._hdg != null ? cd.points[i]._hdg : null,
+            spd: (cd.points[i].speed_kn || 0) + ((cd.points[i+1].speed_kn || 0) - (cd.points[i].speed_kn || 0)) * frac,
           };
         }
       }
