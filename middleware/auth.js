@@ -18,7 +18,7 @@ function authMiddleware(req, res, next) {
   const token = authHeader.slice(7);
   try {
     const payload = jwt.verify(token, SECRET);
-    req.userId = payload.sub;
+    req.userId = payload.sub || payload.userId;
     req.userEmail = payload.email;
     next();
   } catch (err) {

@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
+const { SECRET: JWT_SECRET } = require('../middleware/auth');
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -36,7 +37,7 @@ function createGarminRouter(db) {
   const router = express.Router();
   router.use(authMiddleware);
 
-  const SECRET = process.env.JWT_SECRET || process.env.GARMIN_SECRET || 'change-me-garmin-secret';
+  const SECRET = JWT_SECRET || 'change-me-garmin-secret';
 
   // ── GET /status — check of Garmin gekoppeld is ─────────────────────────────
   router.get('/status', (req, res) => {
@@ -104,7 +105,7 @@ function createGarminRouter(db) {
     const jwt = require('jsonwebtoken');
     const uploadToken = jwt.sign(
       { userId: req.userId, email: req.userEmail },
-      process.env.JWT_SECRET || 'dev-secret',
+      JWT_SECRET,
       { expiresIn: '30m' }
     );
 
