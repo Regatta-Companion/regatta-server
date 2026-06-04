@@ -42,12 +42,14 @@ function createGarminRouter(db) {
   // ── GET /status — check of Garmin gekoppeld is ─────────────────────────────
   router.get('/status', (req, res) => {
     const link = db.prepare(
-      'SELECT last_sync_at, created_at FROM garmin_links WHERE user_id = ?'
+      'SELECT last_sync_at, sync_result, sync_stderr, created_at FROM garmin_links WHERE user_id = ?'
     ).get(req.userId);
 
     return res.json({
       linked: !!link,
       last_sync_at: link?.last_sync_at || null,
+      sync_result: link?.sync_result || null,
+      sync_stderr: link?.sync_stderr || null,
       created_at: link?.created_at || null,
     });
   });
@@ -113,8 +115,14 @@ function createGarminRouter(db) {
 
     // Determine python path — prefer venv, fallback to system python3
     const pythonPath = (() => {
-      const venvPy = path.join(__dirname, '..', '.venv', 'bin', 'python');
-      try { if (require('fs').existsSync(venvPy)) return venvPy; } catch (_) {}
+      const fs = require('fs');
+      const candidates = [
+        path.join(__dirname, '..', '.venv', 'bin', 'python3'),
+        path.join(__dirname, '..', '.venv', 'bin', 'python'),
+      ];
+      for (const p of candidates) {
+        try { if (fs.existsSync(p)) return p; } catch (_) {}
+      }
       return 'python3';
     })();
 
@@ -139,18 +147,19 @@ function createGarminRouter(db) {
 
     child.on('close', (code) => {
       if (code === 0) {
-        // Update last_sync_at
-        db.prepare(
-          "UPDATE garmin_links SET last_sync_at = datetime('now') WHERE user_id = ?"
-        ).run(req.userId);
-
-        // Count uploaded tracks from output
+        // Update sync result
         const match = stdout.match(/Klaar: (\d+) geüpload/);
         const uploaded = match ? parseInt(match[1]) : 0;
+        db.prepare(
+          `UPDATE garmin_links SET last_sync_at = datetime('now'), sync_result = ?, sync_stderr = '' WHERE user_id = ?`
+        ).run(`Klaar: ${uploaded} tracks geüpload`, req.userId);
         console.log(`[garmin] Sync OK voor user ${req.userId}: ${uploaded} tracks geüpload`);
       } else {
-        console.error(`[garmin] Sync FAILED voor user ${req.userId} (exit ${code})`);
-        console.error(`[garmin] stderr: ${stderr.slice(-500)}`);
+        const errMsg = stderr.slice(-500) || `exit code ${code}`;
+        db.prepare(
+          `UPDATE garmin_links SET last_sync_at = datetime('now'), sync_result = 'Mislukt', sync_stderr = ? WHERE user_id = ?`
+        ).run(errMsg, req.userId);
+        console.error(`[garmin] Sync FAILED voor user ${req.userId} (exit ${code}): ${errMsg}`);
       }
     });
 

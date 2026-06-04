@@ -108,7 +108,9 @@ function initDb(dbPath) {
   try { db.exec(`ALTER TABLE users ADD COLUMN team_name TEXT`); } catch (_) {}
   try { db.exec(`ALTER TABLE users ADD COLUMN is_super_admin INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
   // Backfill: create garmin_links if missing
-  db.exec('CREATE TABLE IF NOT EXISTS garmin_links (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, encrypted_email TEXT NOT NULL, encrypted_password TEXT NOT NULL, last_sync_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime(\'now\')))');
+  db.exec(`CREATE TABLE IF NOT EXISTS garmin_links (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, encrypted_email TEXT NOT NULL, encrypted_password TEXT NOT NULL, last_sync_at TEXT, sync_result TEXT, sync_stderr TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+  try { db.exec(`ALTER TABLE garmin_links ADD COLUMN sync_result TEXT`); } catch (_) {}
+  try { db.exec(`ALTER TABLE garmin_links ADD COLUMN sync_stderr TEXT`); } catch (_) {}
 
   return db;
 }
