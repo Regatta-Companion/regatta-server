@@ -1239,7 +1239,7 @@
           opacity: 0.12,
         }).addTo(map);
         // ghost already set
-        map.fitBounds(line.getBounds().pad(0.1));
+        map.fitBounds(ghostLine.getBounds().pad(0.1));
 
         if (displayCoords.length > 0) {
           const end = displayCoords[displayCoords.length - 1];
