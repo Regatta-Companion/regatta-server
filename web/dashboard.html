@@ -255,6 +255,12 @@
     }
     .btn-dl:hover { border-color: var(--accent); color: var(--accent); }
 
+    .btn-del {
+      padding: 4px 8px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
+    }
+    .btn-del:hover { border-color: var(--red); color: var(--red); }
+
     .join-inline { display: inline-flex; gap: 4px; align-items: center; }
 
     /* ── Enhanced mobile ── */
@@ -448,6 +454,7 @@
                 <input class="join-input" placeholder="Code" style="width:80px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
                 <button class="btn-join-go" style="padding:3px 8px;font-size:11px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">OK</button>
               </span>
+              <button class="btn-del" onclick="event.stopPropagation();deleteTrackClicked(this)">🗑</button>
             </td>
           </tr>`;
       });
