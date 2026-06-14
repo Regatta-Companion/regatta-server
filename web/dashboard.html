@@ -192,96 +192,70 @@
     }
 
     /* ── Track cards ── */
-    .track-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 12px;
+    .track-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
     }
-
-    .track-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 16px;
-      cursor: pointer;
-      transition: all 0.15s;
-      box-shadow: 0 2px 8px rgba(0,10,30,0.03);
-    }
-    .track-card:hover {
-      border-color: var(--accent);
-      box-shadow: 0 4px 16px rgba(0,10,30,0.08);
-    }
-
-    .track-card .track-name {
+    .track-table th {
+      text-align: left;
+      font-size: 10px;
       font-weight: 600;
-      font-size: 15px;
-      margin-bottom: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+    .track-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .track-table tr {
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .track-table tbody tr:hover {
+      background: color-mix(in oklch, var(--fg), transparent 95%);
+    }
+    .track-table .td-name {
+      font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      max-width: 240px;
     }
-
-    .track-card .track-date {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .track-card .track-stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px;
-    }
-
-    .track-card .track-stat .ts-val {
+    .track-table .td-num {
       font-family: var(--font-mono);
-      font-size: 15px;
-      font-weight: 600;
       font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
     }
-    .track-card .track-stat .ts-lbl {
-      font-size: 10px;
+    .track-table .td-date {
       color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      white-space: nowrap;
     }
-
-    .track-card .track-actions {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 12px;
-      gap: 8px;
+    .track-table .td-actions {
+      text-align: right;
+      white-space: nowrap;
     }
-
-    .track-card .btn-del {
-      padding: 5px 10px;
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--muted);
-      font-size: 11px;
-      cursor: pointer;
-    }
-    .track-card .btn-del:hover { border-color: var(--red); color: var(--red); }
 
     .btn-join {
-      padding: 5px 10px; background: transparent; border: 1px solid var(--border);
+      padding: 4px 8px; background: transparent; border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
     }
     .btn-join:hover { border-color: var(--accent); color: var(--accent); }
 
     .btn-dl {
-      padding: 5px 10px; background: transparent; border: 1px solid var(--border);
+      padding: 4px 8px; background: transparent; border: 1px solid var(--border);
       border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
       text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
     }
     .btn-dl:hover { border-color: var(--accent); color: var(--accent); }
 
     .join-inline { display: inline-flex; gap: 4px; align-items: center; }
-
-    @media (max-width: 640px) {
-      .track-grid { grid-template-columns: 1fr; }
-    }
 
     /* ── Enhanced mobile ── */
     .mobile-nav {
@@ -359,7 +333,7 @@
       <div class="race-list-header">
         <span class="card-title">Mijn GPX tracks</span>
       </div>
-      <div id="track-grid" class="track-grid">
+      <div id="track-grid">
         <div class="loading-state">
           <div class="spinner"></div>
           <p>Tracks laden…</p>
@@ -425,7 +399,7 @@
       const grid = document.getElementById('track-grid');
       if (!list || !list.length) {
         grid.innerHTML = `
-          <div class="empty-state" style="grid-column:1/-1">
+          <div class="empty-state">
             <svg viewBox="0 0 28 28" fill="none" stroke="var(--muted)" stroke-width="1.5">
               <path d="M14 3L6 18h16L14 3z"/>
               <path d="M14 18v7"/>
@@ -437,37 +411,49 @@
         return;
       }
 
-      const MS_TO_KNOTS = 1.94384;
+      let html = `<table class="track-table">
+        <thead><tr>
+          <th>Naam</th>
+          <th>Datum</th>
+          <th style="text-align:right">Max</th>
+          <th style="text-align:right">Gem.</th>
+          <th style="text-align:right">Afstand</th>
+          <th style="text-align:right">Duur</th>
+          <th style="text-align:right">Wind</th>
+          <th style="text-align:right">Acties</th>
+        </tr></thead>
+        <tbody>`;
 
-      grid.innerHTML = list.map(t => {
+      list.forEach(t => {
         const name = escHtml(t.name || t.filename || 'Track #' + t.id);
         const date = fmtDate(t.recorded_at);
         const dur = t.duration_seconds ? fmtDuration(t.duration_seconds) : '—';
         const dist = t.distance_meters != null ? (t.distance_meters >= 1000 ? (t.distance_meters/1000).toFixed(1) + ' km' : Math.round(t.distance_meters) + ' m') : '—';
         const maxKn = t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) + ' kn' : '—';
         const avgKn = t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) + ' kn' : '—';
-        return `
-          <div class="track-card" onclick="openTrack(${t.id})" data-track-id="${t.id}">
-            <div class="track-name">${name}</div>
-            <div class="track-date">${date}</div>
-            <div class="track-stats">
-              <div class="track-stat"><div class="ts-val">${maxKn}</div><div class="ts-lbl">Max snelheid</div></div>
-              <div class="track-stat"><div class="ts-val">${avgKn}</div><div class="ts-lbl">Gemiddeld</div></div>
-              <div class="track-stat"><div class="ts-val">${dist}</div><div class="ts-lbl">Afstand</div></div>
-              <div class="track-stat"><div class="ts-val">${dur}</div><div class="ts-lbl">Duur</div></div>
-              <div class="track-stat"><div class="ts-val">${t.wind_direction_deg != null ? Math.round(t.wind_direction_deg) + '°' : '—'} <span style="font-size:10px;opacity:0.6">${degToCompass(t.wind_direction_deg)}</span></div><div class="ts-lbl">Wind</div></div>
-            </div>
-            <div class="track-actions">
+        const wind = t.wind_direction_deg != null ? Math.round(t.wind_direction_deg) + '° ' + degToCompass(t.wind_direction_deg) : '—';
+        html += `
+          <tr onclick="openTrack(${t.id})" data-track-id="${t.id}">
+            <td class="td-name">${name}</td>
+            <td class="td-date">${date}</td>
+            <td class="td-num">${maxKn}</td>
+            <td class="td-num">${avgKn}</td>
+            <td class="td-num">${dist}</td>
+            <td class="td-num">${dur}</td>
+            <td class="td-num">${wind}</td>
+            <td class="td-actions">
               <button class="btn-dl" onclick="event.stopPropagation();downloadGpx(${t.id}, '${escHtml(t.filename || '')}')">⬇ GPX</button>
-              <button class="btn-join" onclick="event.stopPropagation();showJoinInput(this)" data-track-id="${t.id}">🔗 Koppelen</button>
+              <button class="btn-join" onclick="event.stopPropagation();showJoinInput(this)" data-track-id="${t.id}">🔗</button>
               <span class="join-inline" style="display:none">
-                <input class="join-input" placeholder="Deelnamecode" style="width:120px;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
-                <button class="btn-join-go" style="padding:4px 10px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">OK</button>
+                <input class="join-input" placeholder="Code" style="width:80px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
+                <button class="btn-join-go" style="padding:3px 8px;font-size:11px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">OK</button>
               </span>
-              <button class="btn-del" onclick="event.stopPropagation();deleteTrackClicked(this)">Verwijder</button>
-            </div>
-          </div>`;
-      }).join('');
+            </td>
+          </tr>`;
+      });
+
+      html += '</tbody></table>';
+      grid.innerHTML = html;
     }
 
     function degToCompass(deg) {
@@ -497,9 +483,9 @@
     }
 
     async function deleteTrackClicked(btn) {
-      const card = btn.closest('.track-card');
-      const id = parseInt(card.dataset.trackId);
-      const name = card.querySelector('.track-name').textContent;
+      const row = btn.closest('tr');
+      const id = parseInt(row.dataset.trackId);
+      const name = row.querySelector('.td-name').textContent;
       if (!confirm('Weet je zeker dat je "' + name + '" wilt verwijderen?')) return;
       try {
         await fetch(API + '/tracks/' + id, {
@@ -517,11 +503,11 @@
     }
 
     async function showJoinInput(btn) {
-      const card = btn.closest('.track-card');
-      const inline = card.querySelector('.join-inline');
-      const joinBtn = card.querySelector('.btn-join');
-      const input = card.querySelector('.join-input');
-      const goBtn = card.querySelector('.btn-join-go');
+      const row = btn.closest('tr');
+      const inline = row.querySelector('.join-inline');
+      const joinBtn = row.querySelector('.btn-join');
+      const input = row.querySelector('.join-input');
+      const goBtn = row.querySelector('.btn-join-go');
 
       if (inline.style.display === 'none' || !inline.style.display) {
         inline.style.display = 'inline-flex';
