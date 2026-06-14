@@ -450,9 +450,9 @@
             <td class="td-actions">
               <button class="btn-dl" onclick="event.stopPropagation();downloadGpx(${t.id}, '${escHtml(t.filename || '')}')">⬇ GPX</button>
               <button class="btn-join" onclick="event.stopPropagation();showJoinInput(this)" data-track-id="${t.id}">🔗</button>
-              <span class="join-inline" style="display:none">
-                <input class="join-input" placeholder="Code" style="width:80px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
-                <button class="btn-join-go" style="padding:3px 8px;font-size:11px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">OK</button>
+              <span class="join-inline" style="display:none" onclick="event.stopPropagation()">
+                <input class="join-input" placeholder="Code" onclick="event.stopPropagation()" style="width:80px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
+                <button class="btn-join-go" onclick="event.stopPropagation()" style="padding:3px 8px;font-size:11px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">OK</button>
               </span>
               <button class="btn-del" onclick="event.stopPropagation();deleteTrackClicked(this)">🗑</button>
             </td>
@@ -524,7 +524,7 @@
         goBtn.onclick = async () => {
           const code = input.value.trim().toUpperCase();
           if (!code) return;
-          const trackId = parseInt(card.dataset.trackId);
+          const trackId = parseInt(row.dataset.trackId);
           try {
             const res = await fetch(API + '/join', {
               method: 'POST',
