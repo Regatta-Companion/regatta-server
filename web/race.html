@@ -1166,11 +1166,8 @@
 
     // ── Load individual track ────────────────────────────────────────────
     async function loadSingleTrack(tid, container) {
-      console.log('loadSingleTrack called with tid:', tid);
       try {
-        console.log('Fetching track:', tid);
         const track = await apiGet('/tracks/' + tid);
-        console.log('Track response:', track);
         if (!track || track.error) throw new Error(track?.error || 'Niet gevonden');
 
         document.getElementById('breadcrumb-race').textContent = track.name || 'Track #' + tid;
@@ -1238,8 +1235,8 @@
         initMap();
         ghostLine = L.polyline(displayCoords, {
           color: BOAT_COLORS[0],
-          weight: 2,
-          opacity: 0.12,
+          weight: 3,
+          opacity: 0.9,
         }).addTo(map);
         // ghost already set
         map.fitBounds(ghostLine.getBounds().pad(0.1));
