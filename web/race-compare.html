@@ -927,24 +927,32 @@
 
       globalMaxSpeed = Math.max(globalMaxSpeed, 2);
 
+      // Nice Y-axis max
+      const niceMax = globalMaxSpeed <= 2 ? Math.ceil(globalMaxSpeed) :
+                      globalMaxSpeed <= 5 ? Math.ceil(globalMaxSpeed) :
+                      Math.ceil(globalMaxSpeed / 5) * 5;
+      const ySteps = niceMax <= 3 ? 3 : niceMax <= 6 ? 3 : 5;
+      const yStep = niceMax / ySteps;
+
       function xPos(t) { return padding.left + (t / totalDuration) * chartW; }
-      function yPos(v) { return padding.top + chartH - (v / globalMaxSpeed) * chartH; }
+      function yPos(v) { return padding.top + chartH - (v / niceMax) * chartH; }
 
       ctx.clearRect(0, 0, w, h);
 
       // Grid
       ctx.strokeStyle = 'rgba(71, 85, 105, 0.2)';
       ctx.lineWidth = 1;
-      for (let k = 0; k <= 4; k++) {
-        const y = padding.top + (k / 4) * chartH;
+      ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      for (let k = 0; k <= ySteps; k++) {
+        const v = k * yStep;
+        const y = yPos(v);
         ctx.beginPath();
         ctx.moveTo(padding.left, y);
         ctx.lineTo(w - padding.right, y);
         ctx.stroke();
-        ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
-        ctx.font = '10px "JetBrains Mono", monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText((globalMaxSpeed * (1 - k / 4)).toFixed(1) + ' kn', padding.left - 6, y + 3);
+        ctx.fillText(v.toFixed(1) + ' kn', padding.left - 6, y + 3);
       }
 
       // Time axis labels

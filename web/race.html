@@ -950,31 +950,38 @@
       ctx.scale(dpr, dpr);
 
       const track = tracks[idx];
-      const speedData = getSpeedData(track);    // cached, never changes for this track
-      const maxSpeed = getSpeedMax(track);       // cached, never changes for this track
-      const minSpeed = 0;
+      const speedData = getSpeedData(track);
       const padding = { top: 12, bottom: 28, left: 40, right: 12 };
       const chartW = w - padding.left - padding.right;
       const chartH = h - padding.top - padding.bottom;
 
+      // ── Nice Y-axis max (round up to nearest 1, 2, or 5) ──
+      const rawMax = Math.max(...speedData, 0.1);
+      const niceMax = rawMax <= 2 ? Math.ceil(rawMax) :
+                      rawMax <= 5 ? Math.ceil(rawMax) :
+                      Math.ceil(rawMax / 5) * 5;
+      const ySteps = niceMax <= 3 ? 3 : niceMax <= 6 ? 3 : 5;
+      const yStep = niceMax / ySteps;
+
       function xPos(i) { return padding.left + (i / (speedData.length - 1)) * chartW; }
-      function yPos(v) { return padding.top + chartH - ((v - minSpeed) / (maxSpeed - minSpeed)) * chartH; }
+      function yPos(v) { return padding.top + chartH - (v / niceMax) * chartH; }
 
       ctx.clearRect(0, 0, w, h);
 
-      // Light theme grid
+      // ── Y-axis grid + labels ──
       ctx.strokeStyle = 'rgba(71, 85, 105, 0.2)';
       ctx.lineWidth = 1;
-      for (let k = 0; k <= 4; k++) {
-        const y = padding.top + (k / 4) * chartH;
+      ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      for (let k = 0; k <= ySteps; k++) {
+        const v = k * yStep;
+        const y = yPos(v);
         ctx.beginPath();
         ctx.moveTo(padding.left, y);
         ctx.lineTo(w - padding.right, y);
         ctx.stroke();
-        ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
-        ctx.font = '10px "JetBrains Mono", monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(((maxSpeed - minSpeed) * (1 - k / 4) + minSpeed).toFixed(1) + ' kn', padding.left - 6, y + 3);
+        ctx.fillText(v.toFixed(1) + ' kn', padding.left - 6, y + 3);
       }
 
       // Area fill
@@ -1009,14 +1016,44 @@
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Time axis
-      ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
-      ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      for (let i = 0; i < speedData.length; i += 20) {
-        const mins = Math.floor(i * 5 / 60);
-        const secs = (i * 5) % 60;
-        ctx.fillText(String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0'), xPos(i), h - 6);
+      // ── X-axis: use actual timestamps ──
+      const pts = track._points;
+      if (pts && pts.length > 0) {
+        const startTs = new Date(pts[0].time).getTime();
+        const endTs = new Date(pts[pts.length - 1].time).getTime();
+        const durationMs = endTs - startTs;
+
+        // Decide interval: aim for ~5-8 labels
+        const targetLabels = Math.max(3, Math.min(8, Math.floor(chartW / 80)));
+        const intervalMs = durationMs / targetLabels;
+        // Round to nice interval: 1min, 2min, 5min, 10min, 15min, 30min, 1h
+        const niceIntervals = [60000, 120000, 300000, 600000, 900000, 1800000, 3600000];
+        const niceInterval = niceIntervals.find(n => n >= intervalMs) || niceIntervals[niceIntervals.length - 1];
+
+        ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
+        ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+
+        let t = startTs;
+        while (t <= endTs) {
+          const frac = (t - startTs) / durationMs;
+          const x = padding.left + frac * chartW;
+          const d = new Date(t);
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          ctx.fillText(hh + ':' + mm, x, h - 6);
+          t += niceInterval;
+        }
+      } else {
+        // Fallback: index-based (demo data)
+        ctx.fillStyle = 'rgba(71, 85, 105, 0.5)';
+        ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        for (let i = 0; i < speedData.length; i += Math.max(1, Math.floor(speedData.length / 6))) {
+          const mins = Math.floor(i * 5 / 60);
+          const secs = (i * 5) % 60;
+          ctx.fillText(String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0'), xPos(i), h - 6);
+        }
       }
     }
 
