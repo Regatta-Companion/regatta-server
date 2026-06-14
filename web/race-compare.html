@@ -143,6 +143,78 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .loading-state p { font-size: 14px; }
 
+    /* ── Fullscreen overlay ── */
+    .btn-fullscreen {
+      padding: 5px 10px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .btn-fullscreen:hover { border-color: var(--accent); color: var(--accent); }
+
+    .fullscreen-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: var(--bg); flex-direction: column;
+    }
+    .fullscreen-overlay.active { display: flex; }
+
+    .fs-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; gap: 12px;
+    }
+    .fs-topbar h3 { font-size: 14px; font-weight: 700; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fs-topbar .fs-exit {
+      padding: 4px 10px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap;
+    }
+    .fs-topbar .fs-exit:hover { border-color: var(--red); color: var(--red); }
+
+    .fs-body { display: flex; flex: 1; min-height: 0; }
+
+    .fs-sidebar {
+      width: 280px; flex-shrink: 0; overflow-y: auto; background: var(--surface);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    }
+    .fs-sidebar h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 10px 12px 6px; margin: 0; }
+
+    .fs-boat-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .fs-boat-table th {
+      text-align: left; font-size: 9px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); padding: 6px 8px;
+      border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface);
+    }
+    .fs-boat-table td {
+      padding: 5px 8px; border-bottom: 1px solid color-mix(in oklch, var(--border), transparent 50%);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;
+    }
+    .fs-boat-table tr { cursor: pointer; transition: background 0.1s; }
+    .fs-boat-table tbody tr:hover { background: color-mix(in oklch, var(--fg), transparent 95%); }
+    .fs-boat-table tr.active { background: color-mix(in oklch, var(--accent), transparent 90%); }
+    .fs-boat-table .td-name { font-weight: 600; max-width: 90px; }
+    .fs-boat-table .td-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+    .fs-map { flex: 1; position: relative; }
+    .fs-map #fs-map-container { width: 100%; height: 100%; }
+
+    .fs-bottombar {
+      display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+      background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0;
+    }
+    .fs-bottombar .play-btn {
+      width: 32px; height: 32px; border-radius: 50%; border: none;
+      background: var(--accent); color: #fff; font-size: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .fs-bottombar .play-btn:hover { background: oklch(38% 0.14 260); }
+    .fs-bottombar .time-display { font-family: var(--font-mono); font-size: 13px; min-width: 50px; text-align: center; }
+    .fs-bottombar input[type="range"] { flex: 1; }
+    .fs-bottombar .speed-group { display: flex; gap: 4px; }
+    .fs-bottombar .speed-btn {
+      padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+    }
+    .fs-bottombar .speed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
     /* ── Mobile ── */
     .mobile-nav {
       display: none; position: fixed; bottom: 0; left: 0; right: 0;
@@ -208,7 +280,9 @@
     </div>
 
     <h2>Boten vergelijken</h2>
-    <p class="subtitle">Selecteer boten, druk op play en zie ze over de kaart varen</p>
+    <p class="subtitle">Selecteer boten, druk op play en zie ze over de kaart varen
+      <button class="btn-fullscreen" onclick="openFullscreen()" style="margin-left:12px">⛶ Volledig scherm</button>
+    </p>
 
     <div id="compare-content">
       <div class="loading-state">
@@ -1035,6 +1109,188 @@
       if (map) map.invalidateSize();
       if (compareData.length) drawCompareChart();
     });
+
+    // ── Fullscreen overlay ──────────────────────────────────────────────────
+    let fsMap = null;
+    let fsMarkers = [];
+    let fsTrails = {};
+    let fsPlaying = false;
+    let fsSpeed = 1;
+    let fsCurrentTime = 0;
+    let fsAnimFrame = null;
+    let fsLastFrameTs = 0;
+
+    function openFullscreen() {
+      const overlay = document.getElementById('fullscreen-overlay');
+      overlay.classList.add('active');
+
+      const raceName = document.getElementById('breadcrumb-race-link')?.textContent || 'Race';
+      document.getElementById('fs-title').textContent = 'Vergelijken — ' + raceName;
+
+      renderFsBoatTable();
+
+      setTimeout(() => {
+        if (fsMap) { fsMap.remove(); fsMap = null; }
+        fsMap = L.map('fs-map-container', { zoomControl: true }).setView([52.3, 5.5], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap'
+        }).addTo(fsMap);
+
+        fsMarkers = [];
+        fsTrails = {};
+        compareData.forEach((cd, i) => {
+          if (!cd.points || !cd.points.length) return;
+          const color = BOAT_COLORS[i % BOAT_COLORS.length];
+          fsTrails[i] = L.polyline([], { color, weight: 2, opacity: 0.6 }).addTo(fsMap);
+          const icon = L.divIcon({
+            className: '',
+            html: `<div style="width:12px;height:12px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
+            iconSize: [12, 12], iconAnchor: [6, 6]
+          });
+          const pt = cd.points[0];
+          const marker = L.marker([pt.lat, pt.lon], { icon }).addTo(fsMap);
+          const name = tracks[i] ? (tracks[i].name || tracks[i].filename || `Boot ${i+1}`) : `Boot ${i+1}`;
+          marker.bindTooltip(name, { permanent: false, direction: 'top' });
+          fsMarkers.push({ marker, color, name });
+        });
+
+        if (fsMarkers.length) {
+          const fg = L.featureGroup(fsMarkers.map(m => m.marker));
+          fsMap.fitBounds(fg.getBounds().pad(0.1));
+        }
+
+        const slider = document.getElementById('fs-slider');
+        slider.max = Math.round(totalDuration);
+        slider.value = 0;
+        updateFsTime(0);
+      }, 100);
+    }
+
+    function closeFullscreen() {
+      document.getElementById('fullscreen-overlay').classList.remove('active');
+      stopFsPlayback();
+      if (fsMap) { fsMap.remove(); fsMap = null; }
+      fsMarkers = [];
+      fsTrails = {};
+    }
+
+    function renderFsBoatTable() {
+      const tbody = document.getElementById('fs-boat-tbody');
+      tbody.innerHTML = compareData.map((cd, i) => {
+        const name = tracks[i] ? escHtml(tracks[i].name || tracks[i].filename || `Boot ${i+1}`) : `Boot ${i+1}`;
+        return `<tr data-idx="${i}">
+          <td class="td-name" style="color:${BOAT_COLORS[i % BOAT_COLORS.length]}">${name}</td>
+          <td class="td-num" id="fs-spd-${i}">—</td>
+          <td class="td-num" id="fs-hdg-${i}">—</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function updateFsTime(timeSec) {
+      fsCurrentTime = timeSec;
+      document.getElementById('fs-time-display').textContent = fmtDuration(Math.round(timeSec));
+
+      compareData.forEach((cd, i) => {
+        if (!cd.points || !cd.points.length) return;
+        const pos = interpolatePosition(cd, timeSec);
+        if (pos && fsMarkers[i]) {
+          fsMarkers[i].marker.setLatLng([pos.lat, pos.lng]);
+          const trail = fsTrails[i];
+          if (trail) {
+            const traveled = cd.points.filter(p => p.time >= 0 && p.time <= timeSec);
+            trail.setLatLngs(traveled.map(p => [p.lat, p.lon]));
+          }
+        }
+        const spdEl = document.getElementById(`fs-spd-${i}`);
+        const hdgEl = document.getElementById(`fs-hdg-${i}`);
+        if (spdEl && pos) spdEl.textContent = pos.speed != null ? pos.speed.toFixed(1) : '—';
+        if (hdgEl && pos) hdgEl.textContent = pos.heading != null ? Math.round(pos.heading) + '°' : '—';
+      });
+    }
+
+    function toggleFsPlayback() {
+      if (fsPlaying) stopFsPlayback();
+      else startFsPlayback();
+    }
+
+    function startFsPlayback() {
+      fsPlaying = true;
+      fsLastFrameTs = performance.now();
+      document.getElementById('fs-play-btn').textContent = '⏸';
+      fsAnimLoop(fsLastFrameTs);
+    }
+
+    function stopFsPlayback() {
+      fsPlaying = false;
+      if (fsAnimFrame) { cancelAnimationFrame(fsAnimFrame); fsAnimFrame = null; }
+      document.getElementById('fs-play-btn').textContent = '▶';
+    }
+
+    function fsAnimLoop(ts) {
+      if (!fsPlaying) return;
+      const dt = (ts - fsLastFrameTs) / 1000;
+      fsLastFrameTs = ts;
+      fsCurrentTime += dt * fsSpeed;
+      if (fsCurrentTime >= totalDuration) {
+        fsCurrentTime = totalDuration;
+        stopFsPlayback();
+      }
+      document.getElementById('fs-slider').value = Math.round(fsCurrentTime);
+      updateFsTime(fsCurrentTime);
+      if (fsPlaying) fsAnimFrame = requestAnimationFrame(fsAnimLoop);
+    }
+
+    function fsSetSpeed(s) {
+      fsSpeed = s;
+      document.querySelectorAll('#fs-bottombar .speed-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.speed) === s);
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const overlay = document.getElementById('fullscreen-overlay');
+        if (overlay.classList.contains('active')) {
+          e.preventDefault();
+          closeFullscreen();
+        }
+      }
+    });
   </script>
+
+  <!-- Fullscreen overlay -->
+  <div id="fullscreen-overlay" class="fullscreen-overlay">
+    <div class="fs-topbar">
+      <h3 id="fs-title">Vergelijken</h3>
+      <button class="fs-exit" onclick="closeFullscreen()">✕ Sluiten (Esc)</button>
+    </div>
+    <div class="fs-body">
+      <div class="fs-sidebar">
+        <h4>Boten</h4>
+        <table class="fs-boat-table">
+          <thead><tr>
+            <th>Naam</th>
+            <th style="text-align:right">Kn</th>
+            <th style="text-align:right">°</th>
+          </tr></thead>
+          <tbody id="fs-boat-tbody"></tbody>
+        </table>
+      </div>
+      <div class="fs-map">
+        <div id="fs-map-container"></div>
+      </div>
+    </div>
+    <div class="fs-bottombar" id="fs-bottombar">
+      <button class="play-btn" id="fs-play-btn" onclick="toggleFsPlayback()">▶</button>
+      <span class="time-display" id="fs-time-display">00:00</span>
+      <input type="range" id="fs-slider" min="0" max="1000" value="0" oninput="updateFsTime(parseInt(this.value))" />
+      <div class="speed-group">
+        <button class="speed-btn active" data-speed="1" onclick="fsSetSpeed(1)">1×</button>
+        <button class="speed-btn" data-speed="2" onclick="fsSetSpeed(2)">2×</button>
+        <button class="speed-btn" data-speed="5" onclick="fsSetSpeed(5)">5×</button>
+        <button class="speed-btn" data-speed="10" onclick="fsSetSpeed(10)">10×</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
