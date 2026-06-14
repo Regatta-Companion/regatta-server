@@ -832,21 +832,7 @@
       const points = await fetchTrackPoints(track);
 
       if (!points || points.length < 2) {
-        const center = [52.0, 4.5];
-        const demo = generateSailingTrack(center);
-        const clr = BOAT_COLORS[idx % BOAT_COLORS.length];
-        ghostLine = L.polyline(demo, { color: clr, weight: 2, opacity: 0.12 }).addTo(map);
-        trailLine = L.polyline([], { color: clr, weight: 3.5, opacity: 0.8 }).addTo(map);
-        map.fitBounds(L.latLngBounds(demo).pad(0.1));
-        const boatLabel = track.boat_name || track.name || track.filename || ('Boot ' + (idx+1));
-        const tooltipHtml = boatLabel + '<br><span style="font-size:10px">0.0 kn · 0°</span>';
-        boatMarker = L.marker(demo[0], { icon: L.divIcon({
-          className: 'boat-marker-icon',
-          html: '<svg class="boat-icon-svg" viewBox="-10 -10 20 20" width="22" height="22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"><path d="M-3,6 L3,6 L3,2 Q3,-1 2,-3 L0,-4 L-2,-3 Q-3,-1 -3,2 Z" fill="' + clr + '" stroke="#fff" stroke-width="1.2"/></svg>',
-          iconSize: [22, 22], iconAnchor: [11, 11],
-        })}).addTo(map).bindTooltip(tooltipHtml, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
-        track._demoCoords = demo;
-        totalDuration = 120;
+        totalDuration = 0;
         return;
       }
 
@@ -868,62 +854,18 @@
       })}).addTo(map).bindTooltip(tooltipHtml, {direction:'top', offset:[0,-12], permanent:true, className:'boat-tooltip'});
     }
 
-    function generateSailingTrack(center) {
-      const pts = 120;
-      const coords = [];
-      const lat0 = center[0];
-      const lng0 = center[1];
-      for (let i = 0; i < pts; i++) {
-        const t = i / pts;
-        const angle = t * Math.PI * 2.5 + 0.3;
-        const radius = 0.015 + t * 0.025;
-        const lat = lat0 + Math.sin(angle) * radius + (t * 0.008);
-        const lng = lng0 + Math.cos(angle * 0.7) * radius * 0.6 + (t * 0.005);
-        coords.push([lat, lng]);
-      }
-      return coords;
-    }
-
-    function generateSpeedData(track) {
-      // Deterministic speed profile based on track metadata
-      // Uses track.id as seed so the same track always produces the same curve
-      const count = track.point_count || 120;
-      const avgKnots = track.avg_speed_knots || 4;
-      const maxKnots = track.max_speed_knots || 6;
-      const range = maxKnots - avgKnots;
-      const speeds = [];
-
-      // Simple deterministic pseudo-random from track id
-      let seed = (track.id || 1) * 2654435761;
-      function pseudoRandom() {
-        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-        return seed / 0x7fffffff;
-      }
-
-      for (let i = 0; i < count; i++) {
-        const base = avgKnots + Math.sin(i / 15) * range * 0.4;
-        const gust = Math.sin(i / 3) > 0.8 ? range * 0.3 : 0;
-        const noise = pseudoRandom() * range * 0.15;
-        speeds.push(Math.round((base + gust + noise) * 10) / 10);
-      }
-      return speeds;
-    }
-
-    // Cache speed data per track — prefer real GPX data, fall back to generated
+    // Cache speed data per track — only real GPX data
     function getSpeedData(track) {
       if (track._speedData) return track._speedData;
 
-      // Try real speed data from fetched GPX points first
       const realSpeeds = getRealSpeedData(track);
       if (realSpeeds && realSpeeds.length > 0) {
         track._speedData = realSpeeds;
         track._speedMax = Math.max(...realSpeeds, 0.1);
-        return track._speedData;
+      } else {
+        track._speedData = [];
+        track._speedMax = 0;
       }
-
-      // Fallback: generated data
-      track._speedData = generateSpeedData(track);
-      track._speedMax = Math.max(...track._speedData, 2);
       return track._speedData;
     }
 
@@ -951,6 +893,14 @@
 
       const track = tracks[idx];
       const speedData = getSpeedData(track);
+      if (!speedData || speedData.length < 2) {
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = 'rgba(71, 85, 105, 0.4)';
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Geen snelheidsdata beschikbaar', w / 2, h / 2);
+        return;
+      }
       const padding = { top: 12, bottom: 28, left: 40, right: 12 };
       const chartW = w - padding.left - padding.right;
       const chartH = h - padding.top - padding.bottom;
@@ -1248,8 +1198,7 @@
           }
         } catch (_) {}
 
-        // Use demo track if no coords
-        const displayCoords = coords.length >= 2 ? coords : generateSailingTrack([52.0, 4.5]);
+        const displayCoords = coords;
 
         const kn = n => n != null ? n.toFixed(1) + ' kn' : '—';
         const dur = track.duration_seconds ? fmtDuration(track.duration_seconds) : '—';
