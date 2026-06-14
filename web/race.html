@@ -774,7 +774,7 @@
         track._fetching = apiGet('/tracks/' + track.id + '/points');
         const data = await track._fetching;
         track._points = data.points || [];
-        if (track._points.length >= 2) computeSmoothedHeadings(track._points, 5);
+        if (track._points.length >= 2) computeSmoothedHeadings(track._points, 2);
         track._maxSpeedKn = data.max_speed_kn || track.max_speed_knots || 0;
         delete track._fetching;
         return track._points;

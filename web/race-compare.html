@@ -350,7 +350,7 @@
       let minT = Infinity, maxT = -Infinity;
       for (const cd of compareData) {
         if (cd.points.length > 0) {
-          computeSmoothedHeadings(cd.points, 5);
+          computeSmoothedHeadings(cd.points, 2);
           const t0 = new Date(cd.points[0].time).getTime();
           const t1 = new Date(cd.points[cd.points.length - 1].time).getTime();
           if (t0 < minT) minT = t0;
