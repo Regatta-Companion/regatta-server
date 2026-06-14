@@ -1142,9 +1142,9 @@
       const pts = tracks[activeTrackIdx]?._points; if (!pts || pts.length < 2) return;
       const startTs = new Date(pts[0].time).getTime();
       const clr = BOAT_COLORS[activeTrackIdx % BOAT_COLORS.length];
-      const TAIL=180; const traveled=[], tail=[];
-      for (const p of pts) { const t = (new Date(p.time).getTime()-startTs)/1000; if (t<=currentTime) { traveled.push([p.lat,p.lon]); if (t>currentTime-TAIL) tail.push({lat:p.lat,lon:p.lon,t}); } else break; }
-      trailLine.setLatLngs(traveled.length>=2?traveled:[]); trailLine.setStyle({color:clr,opacity:0.8});
+      const TAIL=180; const tail=[];
+      for (const p of pts) { const t = (new Date(p.time).getTime()-startTs)/1000; if (t<=currentTime) { if (t>currentTime-TAIL) tail.push({lat:p.lat,lon:p.lon,t}); } else break; }
+      trailLine.setLatLngs(tail.length>=2?tail.map(p=>[p.lat,p.lon]):[]); trailLine.setStyle({color:clr,opacity:0.8});
       fadeSegments.forEach(l=>{try{map.removeLayer(l)}catch(_){}}); fadeSegments=[];
       const B=4, sz=Math.max(1,Math.ceil((tail.length-1)/B));
       for(let s=0;s<B;s++){const a=s*sz,b=Math.min((s+1)*sz,tail.length-1);if(b<=a)continue;
