@@ -78,6 +78,9 @@ def upload_gpx(api_base: str, token: str, gpx_path: str) -> bool:
             print(f"  ⚠ Upload mislukt: HTTP {resp.status}", file=sys.stderr)
             return False
     except Exception as e:
+        # 409 Conflict = track bestaat al → niet als fout tellen
+        if hasattr(e, 'code') and e.code == 409:
+            return True
         print(f"  ⚠ Upload fout: {e}", file=sys.stderr)
         return False
 
