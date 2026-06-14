@@ -44,9 +44,25 @@
     .search-bar input:focus { border-color: var(--accent); }
     .search-bar input::placeholder { color: var(--muted); }
 
+    /* ── Mobile nav ── */
+    .mobile-nav {
+      display: none; position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface); border-top: 1px solid var(--border);
+      z-index: 100; padding: 8px 0 env(safe-area-inset-bottom, 8px);
+    }
+    .mobile-nav-inner { display: flex; justify-content: space-around; align-items: center; }
+    .mobile-nav a {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      text-decoration: none; color: var(--muted); font-size: 10px; padding: 4px 12px;
+    }
+    .mobile-nav a.active { color: var(--accent); }
+    .mobile-nav a svg { width: 22px; height: 22px; }
+    @media (max-width: 768px) { .mobile-nav { display: block; } }
+
     .loading-state, .empty-state {
       text-align: center; padding: 60px 20px; color: var(--muted);
     }
+    .empty-state svg { width: 40px; height: 40px; margin-bottom: 12px; }
     .loading-state .spinner {
       display: inline-block; width: 28px; height: 28px;
       border: 3px solid var(--border); border-top-color: var(--accent);
