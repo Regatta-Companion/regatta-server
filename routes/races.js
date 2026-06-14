@@ -40,27 +40,10 @@ function createRacesRouter(db, tracksDir) {
     return res.status(201).json({ id: result.lastInsertRowid });
   });
 
-  // ── GET / — list races in user's series + standalone races with user's tracks
-  // Admins zien alle races (ongeacht deelname)
+  // ── GET / — list races where user participates ─────────────────────────────
+  // Shows series (if user has at least one track in the series) and
+  // standalone races (if user has a track in that race).
   router.get('/', (req, res) => {
-    const user = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.userId);
-    const isAdmin = user && user.is_admin;
-
-    if (isAdmin) {
-      const races = db.prepare(
-        `SELECT r.id, r.name, r.description, r.race_date, r.series_id, r.created_at,
-                s.name AS series_name, s.season AS series_season,
-                COUNT(rt2.track_id) AS participant_count,
-                0 AS my_track_count
-         FROM races r
-         LEFT JOIN series s ON s.id = r.series_id
-         LEFT JOIN race_tracks rt2 ON rt2.race_id = r.id
-         GROUP BY r.id
-         ORDER BY s.name ASC, r.race_date ASC`
-      ).all();
-      return res.json(races);
-    }
-
     const races = db.prepare(
       `SELECT r.id, r.name, r.description, r.race_date, r.series_id, r.created_at,
               s.name AS series_name, s.season AS series_season,
