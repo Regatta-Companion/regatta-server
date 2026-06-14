@@ -952,7 +952,7 @@
         ctx.moveTo(padding.left, y);
         ctx.lineTo(w - padding.right, y);
         ctx.stroke();
-        ctx.fillText(v.toFixed(1) + ' kn', padding.left - 6, y + 3);
+        ctx.fillText((Number.isInteger(v) ? v : v.toFixed(1)) + ' kn', padding.left - 6, y + 3);
       }
 
       // Time axis labels
