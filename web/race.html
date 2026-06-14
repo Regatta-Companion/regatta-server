@@ -842,7 +842,6 @@
       const endTs = new Date(points[points.length - 1].time).getTime();
       totalDuration = (endTs - startTs) / 1000;
 
-      ghostLine = L.polyline(coords, { color: clr, weight: 2, opacity: 0.12 }).addTo(map);
       trailLine = L.polyline([], { color: clr, weight: 3.5, opacity: 0.8 }).addTo(map);
       map.fitBounds(L.latLngBounds(coords).pad(0.1));
       const boatLabel = track.boat_name || track.name || track.filename || ('Boot ' + (idx+1));
@@ -1143,7 +1142,7 @@
       const pts = tracks[activeTrackIdx]?._points; if (!pts || pts.length < 2) return;
       const startTs = new Date(pts[0].time).getTime();
       const clr = BOAT_COLORS[activeTrackIdx % BOAT_COLORS.length];
-      const TAIL=18; const traveled=[], tail=[];
+      const TAIL=180; const traveled=[], tail=[];
       for (const p of pts) { const t = (new Date(p.time).getTime()-startTs)/1000; if (t<=currentTime) { traveled.push([p.lat,p.lon]); if (t>currentTime-TAIL) tail.push({lat:p.lat,lon:p.lon,t}); } else break; }
       trailLine.setLatLngs(traveled.length>=2?traveled:[]); trailLine.setStyle({color:clr,opacity:0.8});
       fadeSegments.forEach(l=>{try{map.removeLayer(l)}catch(_){}}); fadeSegments=[];
