@@ -1166,8 +1166,11 @@
 
     // ── Load individual track ────────────────────────────────────────────
     async function loadSingleTrack(tid, container) {
+      console.log('loadSingleTrack called with tid:', tid);
       try {
+        console.log('Fetching track:', tid);
         const track = await apiGet('/tracks/' + tid);
+        console.log('Track response:', track);
         if (!track || track.error) throw new Error(track?.error || 'Niet gevonden');
 
         document.getElementById('breadcrumb-race').textContent = track.name || 'Track #' + tid;
@@ -1254,6 +1257,7 @@
         }
 
       } catch (e) {
+        console.error('loadSingleTrack error:', e);
         container.innerHTML = '<div class="error-state"><p>Kon track niet laden. <a href="dashboard.html">Ga terug</a>.</p></div>';
       }
     }
