@@ -301,6 +301,53 @@ function createRacesRouter(db, tracksDir) {
     return res.json(results);
   });
 
+  // ── GET /:id/track-coords — all track coordinates for admin marks editor ──
+  router.get('/:id/track-coords', adminMiddleware, raceAccessMiddleware(), (req, res) => {
+    const trackLinks = db.prepare(
+      `SELECT t.id, t.filename, t.name, rt.user_id
+       FROM race_tracks rt JOIN tracks t ON t.id = rt.track_id
+       WHERE rt.race_id = ?`
+    ).all(req.params.id);
+
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '',
+      textNodeName: '_text',
+      isArray: (name) => name === 'trkpt' || name === 'trkseg' || name === 'trk',
+    });
+
+    const results = [];
+    for (const link of trackLinks) {
+      const filePath = path.join(tracksDir, String(link.user_id), link.filename);
+      if (!fs.existsSync(filePath)) continue;
+
+      try {
+        const xml = fs.readFileSync(filePath, 'utf8');
+        const gpx = parser.parse(xml);
+        const trk = gpx.gpx?.trk;
+        if (!trk) continue;
+
+        const segments = Array.isArray(trk) ? trk.flatMap(t => t.trkseg || []) : (trk.trkseg || []);
+        const coords = [];
+        for (const seg of segments) {
+          if (seg.trkpt) {
+            for (const pt of seg.trkpt) {
+              const lat = parseFloat(pt.lat);
+              const lon = parseFloat(pt.lon);
+              if (!isNaN(lat) && !isNaN(lon)) coords.push([lat, lon]);
+            }
+          }
+        }
+
+        if (coords.length >= 2) {
+          results.push({ id: link.id, name: link.name, coords });
+        }
+      } catch (_) {}
+    }
+
+    return res.json(results);
+  });
+
   // ── GET /:id/marks — list marks for a race ──────────────────────────────
   router.get('/:id/marks', (req, res) => {
     const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.id);

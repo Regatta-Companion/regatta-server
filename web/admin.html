@@ -500,6 +500,7 @@
     // ═══ Race Marks Management ══════════════════════════════════════════════
     let marksMap = null;
     let marksMarkers = [];
+    let marksTrackLayers = [];
     let activeMarkType = 'buoy';
     let activeRaceId = null;
 
@@ -594,6 +595,7 @@
       if (overlay) overlay.style.display = 'none';
       if (marksMap) { marksMap.remove(); marksMap = null; }
       marksMarkers = [];
+      marksTrackLayers = [];
       activeRaceId = null;
     };
 
@@ -656,11 +658,15 @@
         const marker = L.marker([m.lat, m.lon], { icon, draggable: true }).addTo(marksMap);
         marker.bindTooltip(m.name, { direction: 'top', offset: [0, -12] });
 
-        // Drag end → update position
+        // Drag end → update position + redraw lines
         marker.on('dragend', async (e) => {
           const pos = e.target.getLatLng();
           try {
             await apiPut('/races/' + raceId + '/marks/' + m.id, { lat: pos.lat, lon: pos.lng });
+            // Update mark data and redraw start/finish lines
+            m.lat = pos.lat;
+            m.lon = pos.lng;
+            drawStartFinishLine(marks, raceId);
           } catch (err) { alert('Fout bij opslaan: ' + err.message); }
         });
 
@@ -668,15 +674,46 @@
         allBounds.push([m.lat, m.lon]);
       });
 
+      // Draw start/finish lines if both marks exist
+      drawStartFinishLine(marks, raceId);
+
+      // Load and draw boat tracks
+      await loadRaceTracks(raceId);
+
+      // Fit map to show all marks + tracks
       if (allBounds.length) {
         marksMap.fitBounds(allBounds, { padding: [40, 40] });
       }
 
-      // Draw start/finish lines if both marks exist
-      drawStartFinishLine(marks, raceId);
-
       // Render list
       renderMarksList(marks, raceId);
+    }
+
+    const TRACK_COLORS = ['#1d4ed8', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#0891b2', '#65a30d'];
+
+    async function loadRaceTracks(raceId) {
+      if (!marksMap) return;
+      // Clear old track layers
+      marksTrackLayers.forEach(l => { try { marksMap.removeLayer(l); } catch (_) {} });
+      marksTrackLayers = [];
+
+      try {
+        const trackCoords = await apiGet('/races/' + raceId + '/track-coords') || [];
+        if (!trackCoords.length) return;
+
+        const allBounds = [];
+        trackCoords.forEach((tc, i) => {
+          const color = TRACK_COLORS[i % TRACK_COLORS.length];
+          const line = L.polyline(tc.coords, {
+            color: color, weight: 2, opacity: 0.5,
+          }).addTo(marksMap);
+          line.bindTooltip(tc.name || 'Boot ' + (i + 1), { permanent: false });
+          marksTrackLayers.push(line);
+          tc.coords.forEach(c => allBounds.push(c));
+        });
+      } catch (e) {
+        console.warn('Could not load race tracks for marks editor:', e);
+      }
     }
 
     function drawStartFinishLine(marks, raceId) {
