@@ -333,6 +333,80 @@
       color: var(--muted);
     }
 
+    /* ── Fullscreen overlay ── */
+    .btn-fullscreen {
+      padding: 5px 10px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .btn-fullscreen:hover { border-color: var(--accent); color: var(--accent); }
+
+    .fullscreen-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: var(--bg); flex-direction: column;
+    }
+    .fullscreen-overlay.active { display: flex; }
+
+    .fs-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; gap: 12px;
+    }
+    .fs-topbar h3 { font-size: 14px; font-weight: 700; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fs-topbar .fs-exit {
+      padding: 4px 10px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap;
+    }
+    .fs-topbar .fs-exit:hover { border-color: var(--red); color: var(--red); }
+
+    .fs-body { display: flex; flex: 1; min-height: 0; }
+
+    .fs-sidebar {
+      width: 280px; flex-shrink: 0; overflow-y: auto; background: var(--surface);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    }
+    .fs-sidebar h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 10px 12px 6px; margin: 0; }
+
+    .fs-boat-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .fs-boat-table th {
+      text-align: left; font-size: 9px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); padding: 6px 8px;
+      border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface);
+    }
+    .fs-boat-table td {
+      padding: 5px 8px; border-bottom: 1px solid color-mix(in oklch, var(--border), transparent 50%);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;
+    }
+    .fs-boat-table tr { cursor: pointer; transition: background 0.1s; }
+    .fs-boat-table tbody tr:hover { background: color-mix(in oklch, var(--fg), transparent 95%); }
+    .fs-boat-table tr.active { background: color-mix(in oklch, var(--accent), transparent 90%); }
+    .fs-boat-table .td-name { font-weight: 600; max-width: 90px; }
+    .fs-boat-table .td-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+    .fs-map { flex: 1; position: relative; }
+    .fs-map #fs-map-container { width: 100%; height: 100%; }
+
+    .fs-bottombar {
+      display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+      background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0;
+    }
+    .fs-bottombar .play-btn {
+      width: 32px; height: 32px; border-radius: 50%; border: none;
+      background: var(--accent); color: #fff; font-size: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .fs-bottombar .play-btn:hover { background: oklch(38% 0.14 260); }
+    .fs-bottombar .time-display { font-family: var(--font-mono); font-size: 13px; min-width: 50px; text-align: center; }
+    .fs-bottombar input[type="range"] { flex: 1; }
+    .fs-bottombar .speed-group { display: flex; gap: 4px; }
+    .fs-bottombar .speed-btn {
+      padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+    }
+    .fs-bottombar .speed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
     /* ── Mobile bottom nav ── */
     .mobile-nav {
       display: none;
@@ -717,6 +791,7 @@
             ${classSwitcher}
           </div>
           <div class="race-actions">
+            <button class="btn-fullscreen" onclick="openFullscreen()">⛶ Volledig scherm</button>
             <button class="btn btn-secondary btn-sm" onclick="window.location.href='race-compare.html'">Vergelijk boten</button>
           </div>
         </div>
@@ -1363,6 +1438,313 @@
     window.addEventListener('resize', () => {
       if (tracks.length) drawSpeedChart(activeTrackIdx);
     });
+
+    // ── Fullscreen overlay ──────────────────────────────────────────────────
+    let fsMap = null;
+    let fsMarkers = [];
+    let fsTrails = {};
+    let fsPlaying = false;
+    let fsSpeed = 1;
+    let fsCurrentTime = 0;
+    let fsAnimFrame = null;
+    let fsLastFrameTs = 0;
+    let fsTotalDuration = 0;
+
+    function openFullscreen() {
+      const overlay = document.getElementById('fullscreen-overlay');
+      overlay.classList.add('active');
+
+      // Set title
+      const raceName = document.getElementById('breadcrumb-race')?.textContent || 'Race';
+      document.getElementById('fs-title').textContent = raceName;
+
+      // Build boat table
+      renderFsBoatTable();
+
+      // Init map
+      setTimeout(() => {
+        if (fsMap) { fsMap.remove(); fsMap = null; }
+        fsMap = L.map('fs-map-container', { zoomControl: true }).setView([52.3, 5.5], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap'
+        }).addTo(fsMap);
+
+        // Add marks
+        if (raceId) loadFsMarks(raceId);
+
+        // Add boat markers and trails
+        const colors = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+        fsMarkers = [];
+        fsTrails = {};
+        tracks.forEach((t, i) => {
+          if (!t._points || !t._points.length) return;
+          const color = colors[i % colors.length];
+          // Trail
+          fsTrails[t.id] = L.polyline([], { color, weight: 2, opacity: 0.6 }).addTo(fsMap);
+          // Marker
+          const icon = L.divIcon({
+            className: '',
+            html: `<div style="width:12px;height:12px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
+            iconSize: [12, 12], iconAnchor: [6, 6]
+          });
+          const pt = t._points[0];
+          const marker = L.marker([pt.lat, pt.lon], { icon }).addTo(fsMap);
+          marker.bindTooltip(t.name || `Boot ${i+1}`, { permanent: false, direction: 'top' });
+          fsMarkers.push({ marker, track: t, color });
+        });
+
+        // Fit bounds
+        if (fsMarkers.length) {
+          const fg = L.featureGroup(fsMarkers.map(m => m.marker));
+          fsMap.fitBounds(fg.getBounds().pad(0.1));
+        }
+
+        // Set total duration
+        fsTotalDuration = totalDuration;
+        const slider = document.getElementById('fs-slider');
+        slider.max = Math.round(fsTotalDuration);
+        slider.value = 0;
+        updateFsTime(0);
+      }, 100);
+    }
+
+    function closeFullscreen() {
+      const overlay = document.getElementById('fullscreen-overlay');
+      overlay.classList.remove('active');
+      stopFsPlayback();
+      if (fsMap) { fsMap.remove(); fsMap = null; }
+      fsMarkers = [];
+      fsTrails = {};
+    }
+
+    function renderFsBoatTable() {
+      const tbody = document.getElementById('fs-boat-tbody');
+      tbody.innerHTML = tracks.map((t, i) => {
+        const name = escHtml(t.name || t.filename || `Boot ${i+1}`);
+        return `<tr data-idx="${i}" onclick="selectFsBoat(${i})">
+          <td class="td-name" style="color:${getTrackColor(i)}">${name}</td>
+          <td class="td-num" id="fs-spd-${i}">—</td>
+          <td class="td-num" id="fs-hdg-${i}">—</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function getTrackColor(i) {
+      const colors = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+      return colors[i % colors.length];
+    }
+
+    function selectFsBoat(idx) {
+      document.querySelectorAll('#fs-boat-tbody tr').forEach((r, i) => {
+        r.classList.toggle('active', i === idx);
+      });
+      // Center map on this boat
+      const m = fsMarkers[idx];
+      if (m && m.marker.getLatLng()) {
+        fsMap.panTo(m.marker.getLatLng());
+      }
+    }
+
+    async function loadFsMarks(raceId) {
+      try {
+        const marks = await apiGet(`/races/${raceId}/marks`);
+        if (!Array.isArray(marks) || !marks.length) return;
+        marks.forEach(m => {
+          if (m.lat == null || m.lon == null) return;
+          let icon;
+          if (m.type === 'buoy') {
+            const nr = m.name || '?';
+            icon = L.divIcon({
+              className: '',
+              html: `<div style="background:#eab308;color:#000;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;border:2px solid #000">${escHtml(nr)}</div>`,
+              iconSize: [20, 20], iconAnchor: [10, 10]
+            });
+          } else if (m.type === 'pin') {
+            icon = L.divIcon({
+              className: '',
+              html: `<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:12px solid #ef4444"></div>`,
+              iconSize: [12, 12], iconAnchor: [6, 12]
+            });
+          } else if (m.type === 'gate') {
+            icon = L.divIcon({
+              className: '',
+              html: `<div style="background:#3b82f6;color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700">G</div>`,
+              iconSize: [18, 18], iconAnchor: [9, 9]
+            });
+          } else {
+            icon = L.divIcon({
+              className: '',
+              html: `<div style="background:#666;color:#fff;padding:2px 5px;border-radius:3px;font-size:9px;font-weight:700;white-space:nowrap">${escHtml(m.name || m.type)}</div>`,
+              iconSize: [0, 0], iconAnchor: [0, 0]
+            });
+          }
+          L.marker([m.lat, m.lon], { icon }).addTo(fsMap).bindTooltip(m.name || m.type, { direction: 'top' });
+        });
+
+        // Draw start/finish lines
+        const pins = marks.filter(m => m.type === 'pin');
+        const startShips = marks.filter(m => m.type === 'start_ship');
+        const finishShips = marks.filter(m => m.type === 'finish_ship');
+
+        if (pins.length && startShips.length) {
+          const pin = pins[0], ship = startShips[0];
+          if (pin.lat && ship.lat) {
+            L.polyline([[pin.lat, pin.lon], [ship.lat, ship.lon]], {
+              color: '#f59e0b', weight: 2, dashArray: '8,4', opacity: 0.8
+            }).addTo(fsMap).bindTooltip('Startlijn');
+          }
+        }
+        if (pins.length && finishShips.length) {
+          const pin = pins[0], ship = finishShips[0];
+          if (pin.lat && ship.lat) {
+            L.polyline([[pin.lat, pin.lon], [ship.lat, ship.lon]], {
+              color: '#3b82f6', weight: 2, dashArray: '8,4', opacity: 0.8
+            }).addTo(fsMap).bindTooltip('Finishlijn');
+          }
+        }
+      } catch (e) { /* marks not critical */ }
+    }
+
+    function updateFsTime(timeSec) {
+      fsCurrentTime = timeSec;
+      document.getElementById('fs-time-display').textContent = fmtDuration(Math.round(timeSec));
+
+      // Update each boat position + table
+      tracks.forEach((t, i) => {
+        const pts = t._points;
+        if (!pts || !pts.length) return;
+
+        const pos = interpolateTrackPos(pts, timeSec);
+        if (pos && fsMarkers[i]) {
+          fsMarkers[i].marker.setLatLng([pos.lat, pos.lng]);
+          // Trail
+          const trail = fsTrails[t.id];
+          if (trail) {
+            const traveled = pts.filter(p => {
+              const pt = new Date(p.time).getTime() - new Date(pts[0].time).getTime();
+              return pt >= 0 && pt <= timeSec * 1000;
+            });
+            trail.setLatLngs(traveled.map(p => [p.lat, p.lon]));
+          }
+        }
+
+        // Update table values
+        const spdEl = document.getElementById(`fs-spd-${i}`);
+        const hdgEl = document.getElementById(`fs-hdg-${i}`);
+        if (spdEl && pos) spdEl.textContent = pos.spd != null ? pos.spd.toFixed(1) : '—';
+        if (hdgEl && pos) hdgEl.textContent = pos.hdg != null ? Math.round(pos.hdg) + '°' : '—';
+      });
+    }
+
+    function interpolateTrackPos(pts, timeSec) {
+      if (!pts.length) return null;
+      const startTs = new Date(pts[0].time).getTime();
+      const targetTs = startTs + timeSec * 1000;
+      if (timeSec <= 0) return { lat: pts[0].lat, lng: pts[0].lon, spd: pts[0].speed_kn || 0, hdg: pts[0]._hdg || null };
+      const last = pts[pts.length - 1];
+      if (timeSec >= fsTotalDuration) return { lat: last.lat, lng: last.lon, spd: last.speed_kn || 0, hdg: last._hdg || null };
+      for (let i = 0; i < pts.length - 1; i++) {
+        const t0 = new Date(pts[i].time).getTime(), t1 = new Date(pts[i+1].time).getTime();
+        if (targetTs >= t0 && targetTs <= t1) {
+          const f = (t1 - t0 > 0) ? (targetTs - t0) / (t1 - t0) : 0;
+          return {
+            lat: pts[i].lat + (pts[i+1].lat - pts[i].lat) * f,
+            lng: pts[i].lon + (pts[i+1].lon - pts[i].lon) * f,
+            spd: pts[i].speed_kn || 0,
+            hdg: pts[i]._hdg || null
+          };
+        }
+      }
+      return { lat: last.lat, lng: last.lon, spd: last.speed_kn || 0, hdg: last._hdg || null };
+    }
+
+    function toggleFsPlayback() {
+      if (fsPlaying) stopFsPlayback();
+      else startFsPlayback();
+    }
+
+    function startFsPlayback() {
+      fsPlaying = true;
+      fsLastFrameTs = performance.now();
+      document.getElementById('fs-play-btn').textContent = '⏸';
+      fsAnimLoop(fsLastFrameTs);
+    }
+
+    function stopFsPlayback() {
+      fsPlaying = false;
+      if (fsAnimFrame) { cancelAnimationFrame(fsAnimFrame); fsAnimFrame = null; }
+      document.getElementById('fs-play-btn').textContent = '▶';
+    }
+
+    function fsAnimLoop(ts) {
+      if (!fsPlaying) return;
+      const dt = (ts - fsLastFrameTs) / 1000;
+      fsLastFrameTs = ts;
+      fsCurrentTime += dt * fsSpeed;
+      if (fsCurrentTime >= fsTotalDuration) {
+        fsCurrentTime = fsTotalDuration;
+        stopFsPlayback();
+      }
+      document.getElementById('fs-slider').value = Math.round(fsCurrentTime);
+      updateFsTime(fsCurrentTime);
+      if (fsPlaying) fsAnimFrame = requestAnimationFrame(fsAnimLoop);
+    }
+
+    function fsSetSpeed(s) {
+      fsSpeed = s;
+      document.querySelectorAll('#fs-bottombar .speed-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.speed) === s);
+      });
+    }
+
+    // Keyboard shortcut: Escape closes fullscreen
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const overlay = document.getElementById('fullscreen-overlay');
+        if (overlay.classList.contains('active')) {
+          e.preventDefault();
+          closeFullscreen();
+        }
+      }
+    });
   </script>
+
+  <!-- Fullscreen overlay -->
+  <div id="fullscreen-overlay" class="fullscreen-overlay">
+    <div class="fs-topbar">
+      <h3 id="fs-title">Race</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--muted)">Klik op een boot om te volgen</span>
+        <button class="fs-exit" onclick="closeFullscreen()">✕ Sluiten (Esc)</button>
+      </div>
+    </div>
+    <div class="fs-body">
+      <div class="fs-sidebar">
+        <h4>Boten</h4>
+        <table class="fs-boat-table">
+          <thead><tr>
+            <th>Naam</th>
+            <th style="text-align:right">Kn</th>
+            <th style="text-align:right">°</th>
+          </tr></thead>
+          <tbody id="fs-boat-tbody"></tbody>
+        </table>
+      </div>
+      <div class="fs-map">
+        <div id="fs-map-container"></div>
+      </div>
+    </div>
+    <div class="fs-bottombar" id="fs-bottombar">
+      <button class="play-btn" id="fs-play-btn" onclick="toggleFsPlayback()">▶</button>
+      <span class="time-display" id="fs-time-display">00:00</span>
+      <input type="range" id="fs-slider" min="0" max="1000" value="0" oninput="updateFsTime(parseInt(this.value))" />
+      <div class="speed-group">
+        <button class="speed-btn active" data-speed="1" onclick="fsSetSpeed(1)">1×</button>
+        <button class="speed-btn" data-speed="2" onclick="fsSetSpeed(2)">2×</button>
+        <button class="speed-btn" data-speed="5" onclick="fsSetSpeed(5)">5×</button>
+        <button class="speed-btn" data-speed="10" onclick="fsSetSpeed(10)">10×</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
