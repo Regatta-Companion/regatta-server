@@ -98,6 +98,18 @@
       <button class="btn-save" onclick="saveProfile()">Opslaan</button>
     </div>
 
+    <div class="card">
+      <h3>Automatisch koppelen</h3>
+      <div class="field">
+        <label for="pf-race-code">Race code</label>
+        <input id="pf-race-code" class="input" placeholder="bijv. RANDMEER, VALK" style="text-transform:uppercase" />
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Vul hier de klasse-code in van de race. Bij een nieuwe GPX-upload wordt automatisch gezocht naar een wedstrijd met deze code waarvan de datum overeenkomt.
+        </div>
+      </div>
+      <button class="btn-save" onclick="saveProfile()">Opslaan</button>
+    </div>
+
     <div class="card" style="text-align:center;padding:16px 24px">
       <div id="garmin-section">
         <div id="garmin-loading" style="text-align:center;padding:20px;color:var(--muted)">Laden…</div>
@@ -117,6 +129,7 @@
         document.getElementById('pf-boat-type').value = data.boatType || '';
         document.getElementById('pf-boat-name').value = data.boatName || '';
         document.getElementById('pf-team-name').value = data.teamName || '';
+        document.getElementById('pf-race-code').value = data.raceCode || '';
       } catch (e) {
         showToast('Kon profiel niet laden.', 'err');
       }
@@ -126,12 +139,14 @@
       const boat_type = document.getElementById('pf-boat-type').value.trim();
       const boat_name = document.getElementById('pf-boat-name').value.trim();
       const team_name = document.getElementById('pf-team-name').value.trim();
+      const race_code = document.getElementById('pf-race-code').value.trim().toUpperCase();
 
       // Only send fields that have a value (missing = don't touch in DB)
       const body = {};
       if (boat_type) body.boat_type = boat_type;
       if (boat_name) body.boat_name = boat_name;
       if (team_name) body.team_name = team_name;
+      if (race_code) body.race_code = race_code;
 
       try {
         const res = await fetch(API + '/auth/profile', {

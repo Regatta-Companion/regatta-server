@@ -244,7 +244,65 @@ function createTracksRouter(db, tracksDir) {
           stats.pointCount
         );
 
-      return res.status(201).json({ id: result.lastInsertRowid });
+      const trackId = result.lastInsertRowid;
+
+      // ── Auto-link via user's race_code ──────────────────────────────────────
+      try {
+        const user = db.prepare('SELECT race_code FROM users WHERE id = ?').get(req.userId);
+        if (user && user.race_code) {
+          const upperCode = user.race_code.toUpperCase();
+          // Zoek klasse met deze code (reeks of wedstrijd)
+          const seriesCls = db.prepare(
+            'SELECT id, series_id FROM series_classes WHERE code = ?'
+          ).get(upperCode);
+
+          if (seriesCls) {
+            // Reeksklasse: zoek wedstrijd met dichtstbijzijnde datum
+            const races = db.prepare(
+              'SELECT id, race_date FROM races WHERE series_id = ? ORDER BY race_date ASC'
+            ).all(seriesCls.series_id);
+
+            if (races.length && stats.recordedAt) {
+              const trackTime = new Date(stats.recordedAt).getTime();
+              let bestRace = races[0];
+              let bestDiff = Infinity;
+              for (const r of races) {
+                if (!r.race_date) continue;
+                const diff = Math.abs(new Date(r.race_date).getTime() - trackTime);
+                if (diff < bestDiff) { bestDiff = diff; bestRace = r; }
+              }
+              // Alleen koppelen als datum binnen 1 dag verschil
+              if (bestDiff < 86400000) {
+                db.prepare(
+                  'INSERT OR IGNORE INTO race_tracks (race_id, track_id, user_id, series_class_id) VALUES (?, ?, ?, ?)'
+                ).run(bestRace.id, trackId, req.userId, seriesCls.id);
+                console.log(`Auto-linked track ${trackId} to race ${bestRace.id} via code ${upperCode}`);
+              }
+            }
+          } else {
+            // Wedstrijdklasse: zoek race direct
+            const raceCls = db.prepare(
+              'SELECT c.id, c.race_id FROM classes c WHERE c.code = ?'
+            ).get(upperCode);
+            if (raceCls && stats.recordedAt) {
+              const race = db.prepare('SELECT id, race_date FROM races WHERE id = ?').get(raceCls.race_id);
+              if (race && race.race_date) {
+                const diff = Math.abs(new Date(race.race_date).getTime() - new Date(stats.recordedAt).getTime());
+                if (diff < 86400000) {
+                  db.prepare(
+                    'INSERT OR IGNORE INTO race_tracks (race_id, track_id, user_id, class_id) VALUES (?, ?, ?, ?)'
+                  ).run(race.id, trackId, req.userId, raceCls.id);
+                  console.log(`Auto-linked track ${trackId} to race ${race.id} via code ${upperCode}`);
+                }
+              }
+            }
+          }
+        }
+      } catch (linkErr) {
+        console.error('Auto-link error (non-fatal):', linkErr);
+      }
+
+      return res.status(201).json({ id: trackId });
     } catch (err) {
       console.error('Upload error:', err);
       try { fs.unlinkSync(filePath); } catch (_) {}
