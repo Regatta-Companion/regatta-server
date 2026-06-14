@@ -511,6 +511,15 @@
         });
       });
 
+      // ── Losse wedstrijden (niet in een reeks) ──
+      if (standalone.length > 0) {
+        // Add separator if there were also series races
+        if (Object.keys(bySeries).length > 0) {
+          html += `<div style="border-top:1px solid var(--border);margin:16px 0 0"></div>`;
+        }
+        html += `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);padding:16px 0 4px">Losse wedstrijden</div>`;
+      }
+
       standalone.forEach(r => {
         const date = r.race_date ? fmtDate(r.race_date) : '—';
         const trackCount = r.participant_count || '—';
