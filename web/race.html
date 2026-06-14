@@ -434,6 +434,9 @@
     let trailLine = null;
     let fadeSegments = [];
     let boatMarker = null;
+    let raceMarks = [];
+    let raceMarkLayers = [];
+    let raceFinishLines = [];
     let playing = false;
     let currentTime = 0;
     let totalDuration = 0;
@@ -537,6 +540,7 @@
 
         container.innerHTML = buildRaceHTML(race, tracks, seriesRaces);
         initMap();
+        loadRaceMarks(raceId);
         // Start with first boat in the selected class
         const firstIdx = tracks.findIndex(t => {
           const name = t.series_class_name || t.class_name;
@@ -775,6 +779,91 @@
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 18,
       }).addTo(map);
+    }
+
+    // ── Race Marks ──────────────────────────────────────────────────────────
+    const RACE_MARK_ICONS = {
+      buoy: (label) => L.divIcon({
+        className: '',
+        html: `<div style="background:#fbbf24;color:#78350f;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3)">${label||''}</div>`,
+        iconSize: [24, 24], iconAnchor: [12, 12],
+      }),
+      gate: L.divIcon({
+        className: '',
+        html: '<div style="background:#60a5fa;border-radius:50%;width:20px;height:20px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>',
+        iconSize: [20, 20], iconAnchor: [10, 10],
+      }),
+      pin: L.divIcon({
+        className: '',
+        html: '<div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid #f87171;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"></div>',
+        iconSize: [14, 12], iconAnchor: [7, 12],
+      }),
+      start_ship: L.divIcon({
+        className: '',
+        html: '<div style="background:#fff;color:#374151;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;border:2px solid #374151;box-shadow:0 1px 3px rgba(0,0,0,0.3)">START</div>',
+        iconSize: [46, 18], iconAnchor: [23, 9],
+      }),
+      finish_ship: L.divIcon({
+        className: '',
+        html: '<div style="background:#fff;color:#374151;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;border:2px solid #374151;box-shadow:0 1px 3px rgba(0,0,0,0.3)">FINISH</div>',
+        iconSize: [52, 18], iconAnchor: [26, 9],
+      }),
+    };
+
+    function getRaceMarkIcon(type, name) {
+      if (type === 'buoy') {
+        const num = name ? name.replace(/\D/g, '') : '';
+        return RACE_MARK_ICONS.buoy(num);
+      }
+      return RACE_MARK_ICONS[type] || RACE_MARK_ICONS.buoy;
+    }
+
+    async function loadRaceMarks(rId) {
+      if (!rId) return;
+      try {
+        raceMarks = await apiGet('/races/' + rId + '/marks') || [];
+        drawRaceMarks();
+      } catch (_) { raceMarks = []; }
+    }
+
+    function drawRaceMarks() {
+      if (!map) return;
+      // Clear old layers
+      raceMarkLayers.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+      raceFinishLines.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+      raceMarkLayers = [];
+      raceFinishLines = [];
+
+      raceMarks.forEach(m => {
+        const icon = getRaceMarkIcon(m.type, m.name);
+        const marker = L.marker([m.lat, m.lon], { icon }).addTo(map);
+        marker.bindTooltip(m.name, { direction: 'top', offset: [0, -10] });
+        raceMarkLayers.push(marker);
+      });
+
+      // Draw start line: pin + start_ship
+      const pins = raceMarks.filter(m => m.type === 'pin');
+      const startShips = raceMarks.filter(m => m.type === 'start_ship');
+      if (pins.length && startShips.length) {
+        const line = L.polyline(
+          [[pins[0].lat, pins[0].lon], [startShips[0].lat, startShips[0].lon]],
+          { color: '#374151', weight: 2, dashArray: '6,4', opacity: 0.6 }
+        ).addTo(map);
+        raceFinishLines.push(line);
+      }
+
+      // Draw finish line: pin + finish_ship (use second pin if available, else first)
+      const finishShips = raceMarks.filter(m => m.type === 'finish_ship');
+      if (finishShips.length) {
+        const finishPin = pins.length > 1 ? pins[1] : pins[0];
+        if (finishPin) {
+          const line = L.polyline(
+            [[finishPin.lat, finishPin.lon], [finishShips[0].lat, finishShips[0].lon]],
+            { color: '#1d4ed8', weight: 2, dashArray: '6,4', opacity: 0.6 }
+          ).addTo(map);
+          raceFinishLines.push(line);
+        }
+      }
     }
 
     function parseTrackCoords(track) {
