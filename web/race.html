@@ -1489,7 +1489,8 @@
           });
           const pt = t._points[0];
           const marker = L.marker([pt.lat, pt.lon], { icon }).addTo(fsMap);
-          marker.bindTooltip(t.name || `Boot ${i+1}`, { permanent: false, direction: 'top' });
+          const boatLabel = t.boat_name || t.name || t.filename || (`Boot ${i+1}`);
+          marker.bindTooltip(escHtml(boatLabel), { permanent: false, direction: 'top' });
           fsMarkers.push({ marker, track: t, color });
         });
 
@@ -1520,7 +1521,7 @@
     function renderFsBoatTable() {
       const tbody = document.getElementById('fs-boat-tbody');
       tbody.innerHTML = tracks.map((t, i) => {
-        const name = escHtml(t.name || t.filename || `Boot ${i+1}`);
+        const name = escHtml(t.boat_name || t.name || t.filename || `Boot ${i+1}`);
         return `<tr data-idx="${i}" onclick="selectFsBoat(${i})">
           <td class="td-name" style="color:${getTrackColor(i)}">${name}</td>
           <td class="td-num" id="fs-spd-${i}">—</td>
@@ -1608,6 +1609,7 @@
     function updateFsTime(timeSec) {
       fsCurrentTime = timeSec;
       document.getElementById('fs-time-display').textContent = fmtDuration(Math.round(timeSec));
+      const FS_TAIL_MAX = 180; // 3 minuten
 
       // Update each boat position + table
       tracks.forEach((t, i) => {
@@ -1617,21 +1619,39 @@
         const pos = interpolateTrackPos(pts, timeSec);
         if (pos && fsMarkers[i]) {
           fsMarkers[i].marker.setLatLng([pos.lat, pos.lng]);
-          // Trail
+          // Trail — max 3 minuten met fade
           const trail = fsTrails[t.id];
           if (trail) {
-            const traveled = pts.filter(p => {
-              const pt = new Date(p.time).getTime() - new Date(pts[0].time).getTime();
-              return pt >= 0 && pt <= timeSec * 1000;
-            });
-            trail.setLatLngs(traveled.map(p => [p.lat, p.lon]));
+            const targetMs = new Date(pts[0].time).getTime() + timeSec * 1000;
+            const tailStartMs = targetMs - FS_TAIL_MAX * 1000;
+            const tail = [];
+            for (let j = 0; j < pts.length; j++) {
+              const ptMs = new Date(pts[j].time).getTime();
+              if (ptMs > targetMs) break;
+              if (ptMs >= tailStartMs) tail.push(pts[j]);
+            }
+            // Add interpolated head point for smooth trail
+            if (pos && tail.length > 0) {
+              const lastTail = tail[tail.length - 1];
+              const lastTailMs = new Date(lastTail.time).getTime();
+              if (Math.abs(lastTailMs - targetMs) > 2000) {
+                tail.push({ lat: pos.lat, lon: pos.lng, time: new Date(targetMs).toISOString() });
+              }
+            }
+            if (tail.length >= 2) {
+              trail.setLatLngs(tail.map(p => [p.lat, p.lon]));
+              // Fade: laatste 4 segments steeds lager
+              trail.setStyle({ opacity: 0.6 });
+            } else {
+              trail.setLatLngs([]);
+            }
           }
         }
 
         // Update table values
         const spdEl = document.getElementById(`fs-spd-${i}`);
         const hdgEl = document.getElementById(`fs-hdg-${i}`);
-        if (spdEl && pos) spdEl.textContent = pos.spd != null ? pos.spd.toFixed(1) : '—';
+        if (spdEl && pos) spdEl.textContent = pos.spd != null ? (Number.isInteger(pos.spd) ? pos.spd : pos.spd.toFixed(1)) : '—';
         if (hdgEl && pos) hdgEl.textContent = pos.hdg != null ? Math.round(pos.hdg) + '°' : '—';
       });
     }
