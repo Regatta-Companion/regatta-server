@@ -747,7 +747,8 @@
           if (gap > MAX_GAP) break;
           hi++;
         }
-        const dLon = points[hi].lon - points[lo].lon;
+        const latRad = (points[lo].lat + points[hi].lat) / 2 * Math.PI / 180;
+        const dLon = (points[hi].lon - points[lo].lon) * Math.cos(latRad);
         const dLat = points[hi].lat - points[lo].lat;
         points[i]._hdg = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
       }
