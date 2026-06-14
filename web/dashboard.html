@@ -558,15 +558,6 @@
       }
     }
 
-    document.getElementById('search-input').addEventListener('input', function() {
-      const q = this.value.toLowerCase();
-      const filtered = races.filter(r => {
-        const name = (r.name || r.label || '').toLowerCase();
-        return name.includes(q);
-      });
-      renderRaces(filtered);
-    });
-
     loadData();
   </script>
 </body>
