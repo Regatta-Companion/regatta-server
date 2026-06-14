@@ -181,6 +181,21 @@
       width: 18px; height: 18px; background: var(--accent);
       border-radius: 50%; cursor: pointer; border: 2px solid var(--surface);
     }
+
+    /* Boat tooltip */
+    .boat-tooltip {
+      background: rgba(0,0,0,0.75) !important;
+      border: none !important;
+      border-radius: 6px !important;
+      color: #fff !important;
+      font-family: var(--font-mono) !important;
+      font-size: 11px !important;
+      font-weight: 600 !important;
+      padding: 4px 8px !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
+    }
+    .boat-tooltip::before { display: none !important; }
+    .hide-labels .boat-tooltip { display: none !important; }
   </style>
 </head>
 <body>
@@ -415,7 +430,13 @@
 
         <div class="map-section">
           <div class="map-header">
-            <h4>Gezamenlijke track-kaart</h4>
+            <h4 style="display:flex;align-items:center;gap:8px">
+              Gezamenlijke track-kaart
+              <label style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer;display:flex;align-items:center;gap:4px;margin-left:auto">
+                <input type="checkbox" id="toggle-labels" checked style="accent-color:var(--accent)">
+                Labels
+              </label>
+            </h4>
             <div class="map-legend" id="map-legend"></div>
           </div>
           <div id="compare-map"></div>
@@ -985,6 +1006,18 @@
        ──────────────────────────────────────────────────────────────── */
 
     loadCompare();
+
+    document.getElementById('toggle-labels')?.addEventListener('change', (e) => {
+      const mapEl = document.getElementById('compare-map');
+      if (mapEl) {
+        if (e.target.checked) {
+          mapEl.classList.remove('hide-labels');
+        } else {
+          mapEl.classList.add('hide-labels');
+        }
+      }
+    });
+
     window.addEventListener('resize', () => {
       if (map) map.invalidateSize();
       if (compareData.length) drawCompareChart();

@@ -220,6 +220,7 @@
       box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
     }
     .boat-tooltip::before { display: none !important; }
+    .hide-labels .boat-tooltip { display: none !important; }
 
     /* Boat icon — remove default Leaflet styling */
     .boat-icon {
@@ -439,6 +440,7 @@
     let playSpeed = 1;
     let animFrameId = null;
     let lastFrameTs = null;
+    let showLabels = true;
     let currentClass = null; // selected class name, null = all
 
     function getAvailableClasses(trackList) {
@@ -572,6 +574,18 @@
         });
 
         document.getElementById('play-btn')?.addEventListener('click', togglePlayback);
+
+        document.getElementById('toggle-labels')?.addEventListener('change', (e) => {
+          showLabels = e.target.checked;
+          const mapEl = document.getElementById('map');
+          if (mapEl) {
+            if (showLabels) {
+              mapEl.classList.remove('hide-labels');
+            } else {
+              mapEl.classList.add('hide-labels');
+            }
+          }
+        });
 
       } catch (e) {
         console.error('loadRace failed:', e.message || e);
@@ -728,7 +742,13 @@
               </div>
             </div>
             <div class="info-panel">
-              <h4>Boten in deze race</h4>
+              <h4 style="display:flex;align-items:center;gap:8px">
+                Boten in deze race
+                <label style="font-size:11px;font-weight:400;text-transform:none;letter-spacing:0;cursor:pointer;display:flex;align-items:center;gap:4px;margin-left:auto">
+                  <input type="checkbox" id="toggle-labels" checked style="accent-color:var(--accent)">
+                  Labels
+                </label>
+              </h4>
               <div class="boat-list" id="boat-list">
                 ${renderBoatList(raceTracks || [])}
               </div>
