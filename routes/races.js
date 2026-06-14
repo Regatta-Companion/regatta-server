@@ -301,6 +301,82 @@ function createRacesRouter(db, tracksDir) {
     return res.json(results);
   });
 
+  // ── GET /:id/marks — list marks for a race ──────────────────────────────
+  router.get('/:id/marks', (req, res) => {
+    const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.id);
+    if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
+
+    const marks = db.prepare(
+      'SELECT * FROM race_marks WHERE race_id = ? ORDER BY sort_order ASC, id ASC'
+    ).all(req.params.id);
+    return res.json(marks);
+  });
+
+  // ── POST /:id/marks — add a mark (admin only) ──────────────────────────
+  router.post('/:id/marks', adminMiddleware, raceAccessMiddleware(), (req, res) => {
+    const { name, type, lat, lon } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Naam is verplicht.' });
+    }
+    if (lat == null || lon == null) {
+      return res.status(400).json({ error: 'Coordinaten zijn verplicht.' });
+    }
+    const validTypes = ['buoy', 'gate', 'pin', 'start_ship', 'finish_ship'];
+    const markType = validTypes.includes(type) ? type : 'buoy';
+
+    // Get next sort_order
+    const last = db.prepare(
+      'SELECT MAX(sort_order) AS max_order FROM race_marks WHERE race_id = ?'
+    ).get(req.params.id);
+    const sortOrder = (last?.max_order ?? -1) + 1;
+
+    const result = db.prepare(
+      'INSERT INTO race_marks (race_id, name, type, lat, lon, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(req.params.id, name.trim(), markType, lat, lon, sortOrder);
+
+    return res.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  // ── PUT /:id/marks/:markId — update a mark (admin only) ────────────────
+  router.put('/:id/marks/:markId', adminMiddleware, raceAccessMiddleware(), (req, res) => {
+    const mark = db.prepare(
+      'SELECT * FROM race_marks WHERE id = ? AND race_id = ?'
+    ).get(req.params.markId, req.params.id);
+    if (!mark) return res.status(404).json({ error: 'Mark niet gevonden.' });
+
+    const { name, type, lat, lon, sort_order } = req.body || {};
+    const validTypes = ['buoy', 'gate', 'pin', 'start_ship', 'finish_ship'];
+
+    db.prepare(
+      `UPDATE race_marks SET
+        name = COALESCE(?, name),
+        type = COALESCE(?, type),
+        lat = COALESCE(?, lat),
+        lon = COALESCE(?, lon),
+        sort_order = COALESCE(?, sort_order)
+      WHERE id = ?`
+    ).run(
+      name || null,
+      (type && validTypes.includes(type)) ? type : null,
+      lat != null ? lat : null,
+      lon != null ? lon : null,
+      sort_order != null ? sort_order : null,
+      req.params.markId
+    );
+    return res.json({ ok: true });
+  });
+
+  // ── DELETE /:id/marks/:markId — delete a mark (admin only) ─────────────
+  router.delete('/:id/marks/:markId', adminMiddleware, raceAccessMiddleware(), (req, res) => {
+    const mark = db.prepare(
+      'SELECT * FROM race_marks WHERE id = ? AND race_id = ?'
+    ).get(req.params.markId, req.params.id);
+    if (!mark) return res.status(404).json({ error: 'Mark niet gevonden.' });
+
+    db.prepare('DELETE FROM race_marks WHERE id = ?').run(req.params.markId);
+    return res.json({ ok: true });
+  });
+
   return router;
 }
 

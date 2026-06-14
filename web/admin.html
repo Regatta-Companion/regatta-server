@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Regatta Screen — Beheer</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     .admin-page { max-width: 960px; margin: 0 auto; padding: 20px 24px 80px; width: 100%; }
     .admin-page h2 {
@@ -133,6 +134,27 @@
       .series-body { padding: 0 14px 12px; }
       .frow { flex-direction: column; }
     }
+
+    /* ── Race marks ── */
+    .marks-map { height: 360px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-bottom: 12px; }
+    .marks-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+    .marks-toolbar .btn { font-size: 12px; padding: 5px 12px; }
+    .marks-toolbar .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .marks-toolbar .hint { font-size: 11px; color: var(--muted); margin-left: 8px; }
+    .mark-row {
+      display: flex; align-items: center; gap: 8px; padding: 5px 0;
+      border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .mark-row:last-child { border-bottom: none; }
+    .mark-type-badge {
+      font-size: 10px; padding: 1px 6px; border-radius: 8px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .mark-type-buoy { background: #fbbf24; color: #78350f; }
+    .mark-type-gate { background: #60a5fa; color: #1e3a5f; }
+    .mark-type-pin { background: #f87171; color: #7f1d1d; }
+    .mark-type-start_ship { background: #e5e7eb; color: #374151; }
+    .mark-type-finish_ship { background: #e5e7eb; color: #374151; }
   </style>
 </head>
 <body>
@@ -175,6 +197,7 @@
   </div>
 
   <script src="script.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     requireAuth();
     checkAdmin().then(() => {
@@ -409,6 +432,7 @@
                 <div class="r-date">${r.race_date ? fmtDate(r.race_date) : '—'}</div>
               </div>
               <span class="r-count">${r.participant_count || 0} boten</span>
+              <button class="btn-out" onclick="event.stopPropagation();openMarksEditor(${r.id})">📍 Marks</button>
               <button class="btn-del" onclick="event.stopPropagation();delRace(${r.id})">×</button>
             </div>
           `).join('') || '<span class="text-muted">Nog geen wedstrijden.</span>'}
@@ -453,6 +477,7 @@
               <div class="r-date">${r.race_date ? fmtDate(r.race_date) : '—'}</div>
             </div>
             <span class="r-count">${r.participant_count || 0} boten</span>
+            <button class="btn-out" onclick="openMarksEditor(${r.id})">📍 Marks</button>
             <button class="btn-out" onclick="toggleRaceClasses(${r.id})">Klassen</button>
             <button class="btn-del" onclick="delRace(${r.id})">×</button>
           </div>
@@ -471,6 +496,264 @@
 
     // ── Init ───────────────────────────────────────────────────────────────
     loadAll();
+
+    // ═══ Race Marks Management ══════════════════════════════════════════════
+    let marksMap = null;
+    let marksMarkers = [];
+    let activeMarkType = 'buoy';
+    let activeRaceId = null;
+
+    const MARK_TYPES = [
+      { id: 'buoy', label: '🏷️ Boei', color: '#fbbf24' },
+      { id: 'gate', label: '🚪 Gate', color: '#60a5fa' },
+      { id: 'pin', label: '📍 Pin', color: '#f87171' },
+      { id: 'start_ship', label: '⛵ Start', color: '#e5e7eb' },
+      { id: 'finish_ship', label: '🏁 Finish', color: '#e5e7eb' },
+    ];
+
+    const MARK_ICONS = {
+      buoy: (label) => L.divIcon({
+        className: '',
+        html: `<div style="background:#fbbf24;color:#78350f;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${label||''}</div>`,
+        iconSize: [26, 26], iconAnchor: [13, 13],
+      }),
+      gate: L.divIcon({
+        className: '',
+        html: '<div style="background:#60a5fa;border-radius:50%;width:24px;height:24px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3)"></div>',
+        iconSize: [24, 24], iconAnchor: [12, 12],
+      }),
+      pin: L.divIcon({
+        className: '',
+        html: '<div style="width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:14px solid #f87171;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))"></div>',
+        iconSize: [16, 14], iconAnchor: [8, 14],
+      }),
+      start_ship: L.divIcon({
+        className: '',
+        html: '<div style="background:#fff;color:#374151;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;border:2px solid #374151;box-shadow:0 1px 4px rgba(0,0,0,0.3)">START</div>',
+        iconSize: [50, 22], iconAnchor: [25, 11],
+      }),
+      finish_ship: L.divIcon({
+        className: '',
+        html: '<div style="background:#fff;color:#374151;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;border:2px solid #374151;box-shadow:0 1px 4px rgba(0,0,0,0.3)">FINISH</div>',
+        iconSize: [54, 22], iconAnchor: [27, 11],
+      }),
+    };
+
+    function getMarkIcon(type, name) {
+      if (type === 'buoy') {
+        const num = name ? name.replace(/\D/g, '') : '';
+        return MARK_ICONS.buoy(num);
+      }
+      return MARK_ICONS[type] || MARK_ICONS.buoy;
+    }
+
+    // Open marks editor for a race
+    window.openMarksEditor = async function(raceId) {
+      activeRaceId = raceId;
+      const race = allRaces.find(r => r.id === raceId);
+      if (!race) return;
+
+      // Create modal-like overlay
+      let overlay = document.getElementById('marks-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'marks-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+        overlay.onclick = (e) => { if (e.target === overlay) closeMarksEditor(); };
+        document.body.appendChild(overlay);
+      }
+
+      overlay.innerHTML = `
+        <div style="background:var(--surface);border-radius:var(--radius-md);width:100%;max-width:800px;max-height:90vh;overflow-y:auto;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <h3 style="margin:0;flex:1">Marks: ${escHtml(race.name)}</h3>
+            <button class="btn-del" onclick="closeMarksEditor()">✕ Sluiten</button>
+          </div>
+
+          <div class="marks-toolbar" id="marks-toolbar">
+            ${MARK_TYPES.map(mt => `
+              <button class="btn btn-out ${mt.id === activeMarkType ? 'active' : ''}"
+                      onclick="selectMarkType('${mt.id}')">${mt.label}</button>
+            `).join('')}
+            <span class="hint">Klik op de kaart om een mark te plaatsen</span>
+          </div>
+
+          <div id="marks-map" class="marks-map"></div>
+
+          <div id="marks-list"></div>
+        </div>
+      `;
+      overlay.style.display = 'flex';
+
+      // Init map
+      setTimeout(() => initMarksMap(raceId), 100);
+    };
+
+    window.closeMarksEditor = function() {
+      const overlay = document.getElementById('marks-overlay');
+      if (overlay) overlay.style.display = 'none';
+      if (marksMap) { marksMap.remove(); marksMap = null; }
+      marksMarkers = [];
+      activeRaceId = null;
+    };
+
+    window.selectMarkType = function(type) {
+      activeMarkType = type;
+      document.querySelectorAll('#marks-toolbar .btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+    };
+
+    async function initMarksMap(raceId) {
+      if (marksMap) { marksMap.remove(); marksMap = null; }
+      const mapEl = document.getElementById('marks-map');
+      if (!mapEl) return;
+
+      marksMap = L.map(mapEl).setView([52.0, 4.5], 12);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 18,
+      }).addTo(marksMap);
+
+      // Click to add mark
+      marksMap.on('click', async (e) => {
+        const name = prompt('Naam van de mark:', getDefaultMarkName(activeMarkType));
+        if (name === null) return;
+        try {
+          await apiPost('/races/' + raceId + '/marks', {
+            name: name.trim() || getDefaultMarkName(activeMarkType),
+            type: activeMarkType,
+            lat: e.latlng.lat,
+            lon: e.latlng.lng,
+          });
+          await loadMarks(raceId);
+        } catch (err) { alert('Fout: ' + err.message); }
+      });
+
+      await loadMarks(raceId);
+    }
+
+    function getDefaultMarkName(type) {
+      const count = marksMarkers.length;
+      switch (type) {
+        case 'buoy': return 'Boei ' + (count + 1);
+        case 'gate': return 'Gate';
+        case 'pin': return 'Pin';
+        case 'start_ship': return 'Startschip';
+        case 'finish_ship': return 'Finishschip';
+        default: return 'Mark ' + (count + 1);
+      }
+    }
+
+    async function loadMarks(raceId) {
+      // Clear existing markers
+      marksMarkers.forEach(m => marksMap.removeLayer(m));
+      marksMarkers = [];
+
+      const marks = await apiGet('/races/' + raceId + '/marks') || [];
+      const allBounds = [];
+
+      marks.forEach(m => {
+        const icon = getMarkIcon(m.type, m.name);
+        const marker = L.marker([m.lat, m.lon], { icon, draggable: true }).addTo(marksMap);
+        marker.bindTooltip(m.name, { direction: 'top', offset: [0, -12] });
+
+        // Drag end → update position
+        marker.on('dragend', async (e) => {
+          const pos = e.target.getLatLng();
+          try {
+            await apiPut('/races/' + raceId + '/marks/' + m.id, { lat: pos.lat, lon: pos.lng });
+          } catch (err) { alert('Fout bij opslaan: ' + err.message); }
+        });
+
+        marksMarkers.push(marker);
+        allBounds.push([m.lat, m.lon]);
+      });
+
+      if (allBounds.length) {
+        marksMap.fitBounds(allBounds, { padding: [40, 40] });
+      }
+
+      // Draw start/finish lines if both marks exist
+      drawStartFinishLine(marks, raceId);
+
+      // Render list
+      renderMarksList(marks, raceId);
+    }
+
+    function drawStartFinishLine(marks, raceId) {
+      // Remove old polylines
+      if (marksMap._startFinishLines) {
+        marksMap._startFinishLines.forEach(l => marksMap.removeLayer(l));
+      }
+      marksMap._startFinishLines = [];
+
+      // Start line: between pin + start_ship (or first two marks of type pin/start_ship)
+      const pins = marks.filter(m => m.type === 'pin');
+      const startShips = marks.filter(m => m.type === 'start_ship');
+      if (pins.length && startShips.length) {
+        const line = L.polyline(
+          [[pins[0].lat, pins[0].lon], [startShips[0].lat, startShips[0].lon]],
+          { color: '#374151', weight: 3, dashArray: '8,6', opacity: 0.7 }
+        ).addTo(marksMap);
+        line.bindTooltip('Startlijn', { permanent: false });
+        marksMap._startFinishLines.push(line);
+      }
+
+      // Finish line: between pin + finish_ship
+      const finishShips = marks.filter(m => m.type === 'finish_ship');
+      if (pins.length > 1 && finishShips.length) {
+        const line = L.polyline(
+          [[pins[1].lat, pins[1].lon], [finishShips[0].lat, finishShips[0].lon]],
+          { color: '#1d4ed8', weight: 3, dashArray: '8,6', opacity: 0.7 }
+        ).addTo(marksMap);
+        line.bindTooltip('Finishlijn', { permanent: false });
+        marksMap._startFinishLines.push(line);
+      } else if (pins.length && finishShips.length) {
+        const line = L.polyline(
+          [[pins[0].lat, pins[0].lon], [finishShips[0].lat, finishShips[0].lon]],
+          { color: '#1d4ed8', weight: 3, dashArray: '8,6', opacity: 0.7 }
+        ).addTo(marksMap);
+        line.bindTooltip('Finishlijn', { permanent: false });
+        marksMap._startFinishLines.push(line);
+      }
+    }
+
+    function renderMarksList(marks, raceId) {
+      const ctr = document.getElementById('marks-list');
+      if (!ctr) return;
+      if (!marks.length) {
+        ctr.innerHTML = '<p class="text-muted" style="margin-top:8px">Nog geen marks. Klik op de kaart om er een toe te voegen.</p>';
+        return;
+      }
+      ctr.innerHTML = `
+        <h4 style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin:12px 0 6px">Marks (${marks.length})</h4>
+        ${marks.map(m => `
+          <div class="mark-row">
+            <span class="mark-type-badge mark-type-${m.type}">${m.type.replace('_', ' ')}</span>
+            <span style="flex:1;font-weight:500">${escHtml(m.name)}</span>
+            <span style="font-size:11px;color:var(--muted)">${m.lat.toFixed(5)}, ${m.lon.toFixed(5)}</span>
+            <button class="btn-del btn-xs" onclick="renameMark(${raceId},${m.id},'${escHtml(m.name).replace(/'/g,"\\'")}')">✏️</button>
+            <button class="btn-del btn-xs" onclick="deleteMark(${raceId},${m.id})">🗑️</button>
+          </div>
+        `).join('')}
+      `;
+    }
+
+    window.renameMark = async function(raceId, markId, oldName) {
+      const newName = prompt('Nieuwe naam:', oldName);
+      if (newName === null || !newName.trim()) return;
+      try {
+        await apiPut('/races/' + raceId + '/marks/' + markId, { name: newName.trim() });
+        await loadMarks(raceId);
+      } catch (err) { alert('Fout: ' + err.message); }
+    };
+
+    window.deleteMark = async function(raceId, markId) {
+      if (!confirm('Mark verwijderen?')) return;
+      try {
+        await apiDelete('/races/' + raceId + '/marks/' + markId);
+        await loadMarks(raceId);
+      } catch (err) { alert('Fout: ' + err.message); }
+    };
   </script>
 </body>
 </html>

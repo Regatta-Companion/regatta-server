@@ -69,6 +69,17 @@ function initDb(dbPath) {
       linked_at TEXT    NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (race_id, track_id)
     );
+
+    CREATE TABLE IF NOT EXISTS race_marks (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      race_id    INTEGER NOT NULL REFERENCES races(id) ON DELETE CASCADE,
+      name       TEXT    NOT NULL,
+      type       TEXT    NOT NULL DEFAULT 'buoy',
+      lat        REAL    NOT NULL,
+      lon        REAL    NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Series-level classes (one code per class, valid for all races in the series)
