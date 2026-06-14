@@ -270,6 +270,13 @@
     }
     .btn-join:hover { border-color: var(--accent); color: var(--accent); }
 
+    .btn-dl {
+      padding: 5px 10px; background: transparent; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--muted); font-size: 11px; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .btn-dl:hover { border-color: var(--accent); color: var(--accent); }
+
     .join-inline { display: inline-flex; gap: 4px; align-items: center; }
 
     @media (max-width: 640px) {
@@ -589,6 +596,7 @@
               <div class="track-stat"><div class="ts-val">${t.wind_direction_deg != null ? Math.round(t.wind_direction_deg) + '°' : '—'} <span style="font-size:10px;opacity:0.6">${degToCompass(t.wind_direction_deg)}</span></div><div class="ts-lbl">Wind</div></div>
             </div>
             <div class="track-actions">
+              <button class="btn-dl" onclick="event.stopPropagation();downloadGpx(${t.id}, '${escHtml(t.filename || '')}')">⬇ GPX</button>
               <button class="btn-join" onclick="event.stopPropagation();showJoinInput(this)" data-track-id="${t.id}">🔗 Koppelen</button>
               <span class="join-inline" style="display:none">
                 <input class="join-input" placeholder="Deelnamecode" style="width:120px;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);outline:none" />
@@ -604,6 +612,26 @@
       if (deg == null) return '';
       const dirs = ['N','NNO','NO','ONO','O','OZO','ZO','ZZO','Z','ZZW','ZW','WZW','W','WNW','NW','NNW'];
       return dirs[Math.round(deg / 22.5) % 16];
+    }
+
+    async function downloadGpx(id, filename) {
+      try {
+        const res = await fetch(API + '/tracks/' + id + '/gpx', {
+          headers: { 'Authorization': 'Bearer ' + getToken() },
+        });
+        if (!res.ok) throw new Error('Download mislukt');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || ('track_' + id + '.gpx');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('GPX download mislukt: ' + e.message);
+      }
     }
 
     async function deleteTrackClicked(btn) {
