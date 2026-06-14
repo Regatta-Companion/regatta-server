@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Regatta Screen — Wedstrijden</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .races-page { max-width: 800px; margin: 0 auto; padding: 20px 24px 80px; width: 100%; }
+    .races-page h2 {
+      font-family: var(--font-display); font-size: 26px; font-weight: 700;
+      letter-spacing: -0.02em; margin-bottom: 4px;
+    }
+    .races-page .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+
+    .series-group { margin-bottom: 24px; }
+    .series-header {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--accent); padding: 16px 0 8px;
+      border-bottom: 1px solid var(--border); margin-bottom: 4px;
+    }
+    .race-item {
+      display: flex; align-items: center; padding: 12px 16px;
+      border-radius: var(--radius-sm); cursor: pointer; transition: background 0.12s;
+    }
+    .race-item:hover { background: var(--surface-hover, color-mix(in oklch, var(--fg), transparent 95%)); }
+    .race-info { flex: 1; min-width: 0; }
+    .race-name { font-size: 14px; font-weight: 600; }
+    .race-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .race-stats { display: flex; gap: 16px; margin-right: 12px; }
+    .race-stat { text-align: center; }
+    .race-stat .val { font-size: 14px; font-weight: 700; font-family: var(--font-mono); }
+    .race-stat .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+    .race-arrow { color: var(--muted); font-size: 16px; }
+
+    .search-bar {
+      margin-bottom: 16px;
+    }
+    .search-bar input {
+      width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); color: var(--fg); font-family: var(--font-body);
+      font-size: 14px; outline: none;
+    }
+    .search-bar input:focus { border-color: var(--accent); }
+    .search-bar input::placeholder { color: var(--muted); }
+
+    .loading-state, .empty-state {
+      text-align: center; padding: 60px 20px; color: var(--muted);
+    }
+    .loading-state .spinner {
+      display: inline-block; width: 28px; height: 28px;
+      border: 3px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.7s linear infinite; margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 640px) {
+      .races-page { padding: 14px 14px 80px; }
+      .race-stats { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header"></header>
+
+  <div class="races-page">
+    <h2>Wedstrijden</h2>
+    <p class="subtitle">Browse alle reeksen en losse wedstrijden</p>
+
+    <div class="search-bar">
+      <input id="search-input" placeholder="Zoek wedstrijd of reeks…" />
+    </div>
+
+    <div id="race-list">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Wedstrijden laden…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile bottom nav -->
+  <nav class="mobile-nav">
+    <div class="mobile-nav-inner">
+      <a href="dashboard.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Mijn data</span>
+      </a>
+      <a href="races.html" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3L6 18h16L14 3z"/><path d="M14 18v7"/><path d="M10 25h8"/></svg>
+        <span>Wedstrijden</span>
+      </a>
+      <a href="race.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 3"/></svg>
+        <span>Race</span>
+      </a>
+      <a href="race-compare.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 4h4v4"/><path d="M20 4L9 15"/><path d="M8 20H4v-4"/><path d="M4 20l7-7"/></svg>
+        <span>Vergelijk</span>
+      </a>
+    </div>
+  </nav>
+
+  <script src="script.js"></script>
+  <script>
+    requireAuth();
+    checkAdmin().then(() => renderHeader('races'));
+
+    let allRaces = [];
+
+    async function loadRaces() {
+      try {
+        allRaces = await apiGet('/races/all') || [];
+        if (!Array.isArray(allRaces)) allRaces = [];
+        renderRaces(allRaces);
+      } catch (e) {
+        document.getElementById('race-list').innerHTML =
+          '<div class="empty-state"><p>Kon wedstrijden niet laden.</p></div>';
+      }
+    }
+
+    function renderRaces(list) {
+      const container = document.getElementById('race-list');
+
+      if (!list.length) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 28 28" fill="none" stroke="var(--muted)" stroke-width="1.5">
+              <path d="M14 3L6 18h16L14 3z"/>
+              <path d="M14 18v7"/>
+              <path d="M10 25h8"/>
+            </svg>
+            <h3>Nog geen wedstrijden</h3>
+            <p>Er zijn nog geen wedstrijden aangemaakt.</p>
+          </div>`;
+        return;
+      }
+
+      // Group by series
+      const bySeries = {};
+      const standalone = [];
+      list.forEach(r => {
+        if (r.series_name) {
+          const key = r.series_name + (r.series_season ? ' · ' + r.series_season : '');
+          if (!bySeries[key]) bySeries[key] = [];
+          bySeries[key].push(r);
+        } else {
+          standalone.push(r);
+        }
+      });
+
+      let html = '';
+
+      Object.keys(bySeries).sort().forEach(sname => {
+        html += `<div class="series-group">`;
+        html += `<div class="series-header">${escHtml(sname)}</div>`;
+        bySeries[sname].forEach(r => {
+          html += raceItemHtml(r);
+        });
+        html += `</div>`;
+      });
+
+      if (standalone.length > 0) {
+        html += `<div class="series-group">`;
+        html += `<div class="series-header" style="color:var(--muted)">Losse wedstrijden</div>`;
+        standalone.forEach(r => {
+          html += raceItemHtml(r);
+        });
+        html += `</div>`;
+      }
+
+      container.innerHTML = html;
+    }
+
+    function raceItemHtml(r) {
+      const date = r.race_date ? fmtDate(r.race_date) : '—';
+      const trackCount = r.participant_count || '—';
+      return `
+        <div class="race-item" onclick="openRace(${r.id})">
+          <div class="race-info">
+            <div class="race-name">${escHtml(r.name)}</div>
+            <div class="race-meta">${date}</div>
+          </div>
+          <div class="race-stats">
+            <div class="race-stat">
+              <div class="val">${trackCount}</div>
+              <div class="lbl">boten</div>
+            </div>
+          </div>
+          <div class="race-arrow">→</div>
+        </div>`;
+    }
+
+    function openRace(id) {
+      sessionStorage.setItem('raceId', id);
+      window.location.href = 'race.html';
+    }
+
+    // Search filter
+    document.getElementById('search-input').addEventListener('input', function() {
+      const q = this.value.toLowerCase().trim();
+      if (!q) { renderRaces(allRaces); return; }
+      const filtered = allRaces.filter(r =>
+        (r.name && r.name.toLowerCase().includes(q)) ||
+        (r.series_name && r.series_name.toLowerCase().includes(q)) ||
+        (r.description && r.description.toLowerCase().includes(q))
+      );
+      renderRaces(filtered);
+    });
+
+    loadRaces();
+  </script>
+</body>
+</html>

@@ -140,7 +140,8 @@ function renderHeader(title) {
       Regatta Screen
     </div>
     <div class="nav">
-      <a href="dashboard.html" class="${title === 'dashboard' ? 'active' : ''}">Wedstrijden</a>
+      <a href="dashboard.html" class="${title === 'dashboard' ? 'active' : ''}">Mijn data</a>
+      <a href="races.html" class="${title === 'races' ? 'active' : ''}">Wedstrijden</a>
       <a href="race.html" class="${title === 'race' ? 'active' : ''}">Race</a>
       <a href="race-compare.html" class="${title === 'compare' ? 'active' : ''}">Vergelijk</a>
       <a href="admin.html" class="${title === 'admin' ? 'active' : ''}" style="${isAdmin ? '' : 'display:none'}">Beheer</a>

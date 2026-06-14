@@ -341,13 +341,9 @@
 
   <div class="dashboard">
     <h2>Dashboard</h2>
-    <p class="subtitle" id="subtitle">Je race-track data</p>
+    <p class="subtitle" id="subtitle">Mijn GPX-track data</p>
 
     <div class="stats-row" id="stats-row">
-      <div class="stat-card">
-        <div class="stat-val" id="stat-races">—</div>
-        <div class="stat-label">Wedstrijden</div>
-      </div>
       <div class="stat-card">
         <div class="stat-val" id="stat-tracks">—</div>
         <div class="stat-label">GPX-tracks</div>
@@ -358,40 +354,15 @@
       </div>
     </div>
 
-    <div class="tab-bar">
-      <button class="tab-btn active" data-tab="races">Wedstrijden</button>
-      <button class="tab-btn" data-tab="tracks">Mijn tracks</button>
-    </div>
-
-    <!-- ═══ Wedstrijden ═══ -->
-    <div id="tab-races">
-      <div class="card">
-        <div class="race-list-header">
-          <span class="card-title">Race overzicht</span>
-          <div class="filter-bar">
-            <input class="input" id="search-input" placeholder="Zoek wedstrijd…" />
-          </div>
-        </div>
-        <div id="race-list">
-          <div class="loading-state">
-            <div class="spinner"></div>
-            <p>Wedstrijden laden…</p>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- ═══ Mijn tracks ═══ -->
-    <div id="tab-tracks" style="display:none">
-      <div class="card">
-        <div class="race-list-header">
-          <span class="card-title">Mijn GPX tracks</span>
-        </div>
-        <div id="track-grid" class="track-grid">
-          <div class="loading-state">
-            <div class="spinner"></div>
-            <p>Tracks laden…</p>
-          </div>
+    <div class="card">
+      <div class="race-list-header">
+        <span class="card-title">Mijn GPX tracks</span>
+      </div>
+      <div id="track-grid" class="track-grid">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>Tracks laden…</p>
         </div>
       </div>
     </div>
@@ -402,6 +373,10 @@
     <div class="mobile-nav-inner">
       <a href="dashboard.html" class="active">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Mijn data</span>
+      </a>
+      <a href="races.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3L6 18h16L14 3z"/><path d="M14 18v7"/><path d="M10 25h8"/></svg>
         <span>Wedstrijden</span>
       </a>
       <a href="race.html">
@@ -420,139 +395,26 @@
     requireAuth();
     checkAdmin().then(() => renderHeader('dashboard'));
 
-    let races = [];
     let tracks = [];
-    let currentTab = 'races';
-
-    // ── Tab switching ──
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentTab = btn.dataset.tab;
-        document.getElementById('tab-races').style.display = currentTab === 'races' ? 'block' : 'none';
-        document.getElementById('tab-tracks').style.display = currentTab === 'tracks' ? 'block' : 'none';
-      });
-    });
 
     async function loadData() {
       try {
-        [races, tracks] = await Promise.all([
-          apiGet('/races') || [],
-          apiGet('/tracks') || [],
-        ]);
-
-        if (!Array.isArray(races)) races = [];
+        tracks = await apiGet('/tracks') || [];
         if (!Array.isArray(tracks)) tracks = [];
 
-        document.getElementById('stat-races').textContent = races.length;
         document.getElementById('stat-tracks').textContent = tracks.length;
 
-        // Bereken totale afstand in nautische mijlen
         let totalNm = 0;
         if (Array.isArray(tracks)) {
           totalNm = tracks.reduce((sum, t) => sum + ((t.distance_meters || 0) / 1852), 0);
         }
         document.getElementById('stat-distance').textContent = totalNm.toFixed(1) + ' nm';
 
-        renderRaces(races);
         renderTracks(tracks);
       } catch (e) {
-        document.getElementById('race-list').innerHTML =
+        document.getElementById('track-grid').innerHTML =
           '<div class="empty-state"><p>Kon gegevens niet laden. Probeer opnieuw in te loggen.</p></div>';
       }
-    }
-
-    function renderRaces(list) {
-      const container = document.getElementById('race-list');
-
-      if (!list.length) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <svg viewBox="0 0 28 28" fill="none" stroke="var(--muted)" stroke-width="1.5">
-              <path d="M14 3L6 18h16L14 3z"/>
-              <path d="M14 18v7"/>
-              <path d="M10 25h8"/>
-            </svg>
-            <h3>Nog geen wedstrijden</h3>
-            <p>Voer een deelnamecode in bij een track om hier wedstrijden te zien.</p>
-          </div>`;
-        return;
-      }
-
-      // Group by series
-      const bySeries = {};
-      const standalone = [];
-      list.forEach(r => {
-        if (r.series_name) {
-          const key = r.series_name + (r.series_season ? ' · ' + r.series_season : '');
-          if (!bySeries[key]) bySeries[key] = [];
-          bySeries[key].push(r);
-        } else {
-          standalone.push(r);
-        }
-      });
-
-      let html = '';
-
-      Object.keys(bySeries).sort().forEach(sname => {
-        html += `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--accent);padding:16px 0 4px">${escHtml(sname)}</div>`;
-        bySeries[sname].forEach(r => {
-          const date = r.race_date ? fmtDate(r.race_date) : '—';
-          const trackCount = r.participant_count || '—';
-          const myCount = r.my_track_count || 0;
-          html += `
-            <div class="race-item" onclick="openRace(${r.id})">
-              <div class="race-info">
-                <div class="race-name">${escHtml(r.name)}</div>
-                <div class="race-meta">${date}${myCount > 0 ? ' · ' + myCount + ' van jou' : ''}</div>
-              </div>
-              <div class="race-stats">
-                <div class="race-stat">
-                  <div class="val">${trackCount}</div>
-                  <div class="lbl">boten</div>
-                </div>
-              </div>
-              <div class="race-arrow">→</div>
-            </div>`;
-        });
-      });
-
-      // ── Losse wedstrijden (niet in een reeks) ──
-      if (standalone.length > 0) {
-        // Add separator if there were also series races
-        if (Object.keys(bySeries).length > 0) {
-          html += `<div style="border-top:1px solid var(--border);margin:16px 0 0"></div>`;
-        }
-        html += `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);padding:16px 0 4px">Losse wedstrijden</div>`;
-      }
-
-      standalone.forEach(r => {
-        const date = r.race_date ? fmtDate(r.race_date) : '—';
-        const trackCount = r.participant_count || '—';
-        html += `
-          <div class="race-item" onclick="openRace(${r.id})">
-            <div class="race-info">
-              <div class="race-name">${escHtml(r.name)}</div>
-              <div class="race-meta">${date}</div>
-            </div>
-            <div class="race-stats">
-              <div class="race-stat">
-                <div class="val">${trackCount}</div>
-                <div class="lbl">boten</div>
-              </div>
-            </div>
-            <div class="race-arrow">→</div>
-          </div>`;
-      });
-
-      container.innerHTML = html;
-    }
-
-    function openRace(id) {
-      console.log('openRace clicked, storing raceId:', id);
-      sessionStorage.setItem('raceId', id);
-      window.location.href = 'race.html';
     }
 
     function openTrack(id) {

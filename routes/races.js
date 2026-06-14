@@ -67,6 +67,21 @@ function createRacesRouter(db, tracksDir) {
     return res.json(races);
   });
 
+  // ── GET /all — list ALL races (public browse, no user filtering) ──────────
+  router.get('/all', (req, res) => {
+    const races = db.prepare(
+      `SELECT r.id, r.name, r.description, r.race_date, r.series_id, r.created_at,
+              s.name AS series_name, s.season AS series_season,
+              COUNT(rt2.track_id) AS participant_count
+       FROM races r
+       LEFT JOIN series s ON s.id = r.series_id
+       LEFT JOIN race_tracks rt2 ON rt2.race_id = r.id
+       GROUP BY r.id
+       ORDER BY s.name ASC, r.race_date ASC`
+    ).all();
+    return res.json(races);
+  });
+
   // ── GET /:id — single race details ────────────────────────────────────────
   router.get('/:id', (req, res) => {
     const race = db.prepare(
