@@ -407,6 +407,9 @@
     }
     .fs-bottombar .speed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+    /* Fullscreen labels toggle */
+    #fs-map-container.hide-labels .boat-tooltip { display: none !important; }
+
     /* ── Mobile bottom nav ── */
     .mobile-nav {
       display: none;
@@ -1461,6 +1464,14 @@
       // Build boat table
       renderFsBoatTable();
 
+      // Labels toggle for fullscreen map
+      document.getElementById('fs-toggle-labels')?.addEventListener('change', (e) => {
+        const mapEl = document.getElementById('fs-map-container');
+        if (mapEl) {
+          mapEl.classList.toggle('hide-labels', !e.target.checked);
+        }
+      });
+
       // Init map
       setTimeout(() => {
         if (fsMap) { fsMap.remove(); fsMap = null; }
@@ -1490,7 +1501,7 @@
           const pt = t._points[0];
           const marker = L.marker([pt.lat, pt.lon], { icon }).addTo(fsMap);
           const boatLabel = t.boat_name || t.name || t.filename || (`Boot ${i+1}`);
-          marker.bindTooltip(escHtml(boatLabel), { permanent: false, direction: 'top' });
+          marker.bindTooltip(escHtml(boatLabel) + '<br><span style="font-size:10px">0.0 kn · 0°</span>', { permanent: true, direction: 'top', offset: [0, -12], className: 'boat-tooltip' });
           fsMarkers.push({ marker, track: t, color });
         });
 
@@ -1622,6 +1633,11 @@
         const pos = interpolateTrackPos(pts, timeSec);
         if (pos && fsMarkers[i]) {
           fsMarkers[i].marker.setLatLng([pos.lat, pos.lng]);
+          // Update tooltip with live speed + heading
+          const bName = t.boat_name || t.name || t.filename || (`Boot ${i+1}`);
+          const hdg = pos.hdg != null ? Math.round(pos.hdg) : 0;
+          const spd = pos.spd != null ? (Number.isInteger(pos.spd) ? pos.spd : pos.spd.toFixed(1)) : '0.0';
+          fsMarkers[i].marker.setTooltipContent(escHtml(bName) + '<br><span style="font-size:10px">' + spd + ' kn · ' + hdg + '°</span>');
           // Trail — max 3 minuten met fade
           const trail = fsTrails[t.id];
           if (trail) {
@@ -1737,6 +1753,10 @@
     <div class="fs-topbar">
       <h3 id="fs-title">Race</h3>
       <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:11px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="fs-toggle-labels" checked style="accent-color:var(--accent)">
+          Labels
+        </label>
         <span style="font-size:11px;color:var(--muted)">Klik op een boot om te volgen</span>
         <button class="fs-exit" onclick="closeFullscreen()">✕ Sluiten (Esc)</button>
       </div>

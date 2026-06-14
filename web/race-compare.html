@@ -215,6 +215,9 @@
     }
     .fs-bottombar .speed-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+    /* Fullscreen labels toggle */
+    #fs-map-container.hide-labels .boat-tooltip { display: none !important; }
+
     /* ── Mobile ── */
     .mobile-nav {
       display: none; position: fixed; bottom: 0; left: 0; right: 0;
@@ -1129,6 +1132,14 @@
 
       renderFsBoatTable();
 
+      // Labels toggle for fullscreen map
+      document.getElementById('fs-toggle-labels')?.addEventListener('change', (e) => {
+        const mapEl = document.getElementById('fs-map-container');
+        if (mapEl) {
+          mapEl.classList.toggle('hide-labels', !e.target.checked);
+        }
+      });
+
       setTimeout(() => {
         if (fsMap) { fsMap.remove(); fsMap = null; }
         fsMap = L.map('fs-map-container', { zoomControl: true }).setView([52.3, 5.5], 11);
@@ -1149,8 +1160,8 @@
           });
           const pt = cd.points[0];
           const marker = L.marker([pt.lat, pt.lon], { icon }).addTo(fsMap);
-          const name = tracks[i] ? (tracks[i].name || tracks[i].filename || `Boot ${i+1}`) : `Boot ${i+1}`;
-          marker.bindTooltip(name, { permanent: false, direction: 'top' });
+          const name = tracks[i] ? (tracks[i].boat_name || tracks[i].name || tracks[i].filename || `Boot ${i+1}`) : `Boot ${i+1}`;
+          marker.bindTooltip(escHtml(name) + '<br><span style="font-size:10px">0.0 kn · 0°</span>', { permanent: true, direction: 'top', offset: [0, -12], className: 'boat-tooltip' });
           fsMarkers.push({ marker, color, name });
         });
 
@@ -1177,7 +1188,7 @@
     function renderFsBoatTable() {
       const tbody = document.getElementById('fs-boat-tbody');
       tbody.innerHTML = compareData.map((cd, i) => {
-        const name = tracks[i] ? escHtml(tracks[i].name || tracks[i].filename || `Boot ${i+1}`) : `Boot ${i+1}`;
+        const name = tracks[i] ? escHtml(tracks[i].boat_name || tracks[i].name || tracks[i].filename || `Boot ${i+1}`) : `Boot ${i+1}`;
         return `<tr data-idx="${i}">
           <td class="td-name" style="color:${BOAT_COLORS[i % BOAT_COLORS.length]}">${name}</td>
           <td class="td-num" id="fs-spd-${i}">—</td>
@@ -1195,6 +1206,10 @@
         const pos = interpolatePosition(cd, timeSec);
         if (pos && fsMarkers[i]) {
           fsMarkers[i].marker.setLatLng([pos.lat, pos.lng]);
+          // Update tooltip with live speed + heading
+          const hdg = pos.heading != null ? Math.round(pos.heading) : 0;
+          const spd = pos.speed != null ? pos.speed.toFixed(1) : '0.0';
+          fsMarkers[i].marker.setTooltipContent(escHtml(fsMarkers[i].name) + '<br><span style="font-size:10px">' + spd + ' kn · ' + hdg + '°</span>');
           const trail = fsTrails[i];
           if (trail) {
             const traveled = cd.points.filter(p => p.time >= 0 && p.time <= timeSec);
@@ -1262,7 +1277,13 @@
   <div id="fullscreen-overlay" class="fullscreen-overlay">
     <div class="fs-topbar">
       <h3 id="fs-title">Vergelijken</h3>
-      <button class="fs-exit" onclick="closeFullscreen()">✕ Sluiten (Esc)</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:11px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="fs-toggle-labels" checked style="accent-color:var(--accent)">
+          Labels
+        </label>
+        <button class="fs-exit" onclick="closeFullscreen()">✕ Sluiten (Esc)</button>
+      </div>
     </div>
     <div class="fs-body">
       <div class="fs-sidebar">
