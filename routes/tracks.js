@@ -167,6 +167,17 @@ function createTracksRouter(db, tracksDir) {
 
       var gpxContent = req.body.gpx;
       var filename = path.basename(req.body.filename || 'track_garmin.gpx');
+
+      // Duplicate check vóór het schrijven: het bestand wordt onder zijn eigen
+      // naam opgeslagen, dus schrijven+unlinken bij een duplicaat zou het GPX
+      // van de bestaande track overschrijven en daarna verwijderen.
+      var dup = db
+        .prepare('SELECT id FROM tracks WHERE user_id = ? AND original_filename = ?')
+        .get(req.userId, filename);
+      if (dup) {
+        return res.status(409).json({ error: 'Track staat al op de server.', id: dup.id });
+      }
+
       var userDir = path.join(tracksDir, String(req.userId));
       fs.mkdirSync(userDir, { recursive: true });
       var filePath = path.join(userDir, filename);
@@ -208,7 +219,11 @@ function createTracksRouter(db, tracksDir) {
       .get(req.userId, originalFilename);
 
     if (existing) {
-      try { fs.unlinkSync(filePath); } catch (_) {}
+      // JSON-uploads staan onder hun originele naam op schijf; unlinken zou dan
+      // het bestand van de bestaande track verwijderen.
+      if (!isJsonGpx) {
+        try { fs.unlinkSync(filePath); } catch (_) {}
+      }
       return res.status(409).json({ error: 'Track staat al op de server.', id: existing.id });
     }
 

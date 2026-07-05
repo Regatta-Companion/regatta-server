@@ -48,7 +48,8 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+// 50 MB: GPX-uploads via JSON (Garmin WiFi) — gelijk aan de multer-limiet
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ── Static web frontend ────────────────────────────────────────────────────

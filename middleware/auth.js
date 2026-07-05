@@ -3,7 +3,11 @@
 
 const jwt = require('jsonwebtoken');
 
-const SECRET = process.env.JWT_SECRET || 'regatta-screen-secret-change-in-production';
+const SECRET = process.env.JWT_SECRET;
+if (!SECRET) {
+  console.error('FATAL: JWT_SECRET ontbreekt. Maak een .env aan met JWT_SECRET=<random hex> (zie README).');
+  process.exit(1);
+}
 
 /**
  * Express middleware that validates a Bearer JWT in the Authorization header.
