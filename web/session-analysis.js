@@ -69,5 +69,54 @@
     });
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings };
+  // Schat de windrichting (waar hij vandaan komt) uit kruisrakken:
+  // twee dominante koerspieken 70–110° uit elkaar; wind = bissectrice.
+  function estimateWind(points) {
+    const bins = new Array(36).fill(0);
+    let totalW = 0;
+    for (let i = 1; i < points.length; i++) {
+      const pt = points[i];
+      if (pt.heading_deg == null || (pt.speed_kn || 0) <= 2) continue;
+      let w = 1;
+      if (pt.time && points[i - 1].time) {
+        const dt = (new Date(pt.time) - new Date(points[i - 1].time)) / 1000;
+        if (dt <= 0 || dt > 60) continue; // GPS-gat
+        w = dt;
+      }
+      bins[Math.floor(pt.heading_deg / 10) % 36] += w;
+      totalW += w;
+    }
+    if (totalW === 0) return { direction_deg: null, confidence: 'none' };
+
+    // Lokale pieken in het histogram, zwaarste eerst
+    const peaks = [];
+    for (let b = 0; b < 36; b++) {
+      const w = bins[b];
+      if (w > 0 && w >= bins[(b + 35) % 36] && w >= bins[(b + 1) % 36]) {
+        peaks.push({ deg: b * 10 + 5, w });
+      }
+    }
+    peaks.sort((a, b) => b.w - a.w);
+
+    // Zwaarste piekenpaar dat 70–110° uit elkaar ligt (bakboord/stuurboord aan de wind)
+    let best = null;
+    const top = Math.min(peaks.length, 6);
+    for (let i = 0; i < top; i++) {
+      for (let j = i + 1; j < top; j++) {
+        const sep = Math.abs(angleDiff(peaks[i].deg, peaks[j].deg));
+        if (sep >= 70 && sep <= 110) {
+          const w = peaks[i].w + peaks[j].w;
+          if (!best || w > best.w) best = { a: peaks[i].deg, b: peaks[j].deg, w };
+        }
+      }
+    }
+    if (!best) return { direction_deg: null, confidence: 'none' };
+
+    // Bissectrice aan de scherpe kant = richting waar de wind vandaan komt
+    const wind = circularMean([best.a, best.b]);
+    const confidence = best.w / totalW >= 0.25 ? 'high' : 'low';
+    return { direction_deg: Math.round(wind), confidence };
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind };
 });

@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const SA = require('../web/session-analysis.js');
+const { makeTrack } = require('./helpers.js');
 
 test('bearing: van west naar oost is 90 graden', () => {
   const b = SA.bearing(52.0, 5.0, 52.0, 5.01);
@@ -39,4 +40,34 @@ test('computeHeadings: stilliggend punt erft vorige koers', () => {
   ];
   const withH = SA.computeHeadings(points, 1); // window 1 = geen smoothing
   assert.ok(withH[2].heading_deg != null);
+});
+
+test('estimateWind: kruisrakken 315/45 geven wind ~0 met hoge betrouwbaarheid', () => {
+  const segs = [];
+  for (let i = 0; i < 6; i++) {
+    segs.push({ heading_deg: 315, seconds: 120, speed_kn: 5 });
+    segs.push({ heading_deg: 45, seconds: 120, speed_kn: 5 });
+  }
+  const points = SA.computeHeadings(makeTrack(segs));
+  const wind = SA.estimateWind(points);
+  assert.ok(wind.direction_deg != null);
+  assert.ok(Math.abs(SA.angleDiff(0, wind.direction_deg)) <= 10,
+    `verwacht wind ~0, kreeg ${wind.direction_deg}`);
+  assert.strictEqual(wind.confidence, 'high');
+});
+
+test('estimateWind: alleen een recht stuk geeft geen windrichting', () => {
+  const points = SA.computeHeadings(makeTrack([{ heading_deg: 90, seconds: 600, speed_kn: 5 }]));
+  const wind = SA.estimateWind(points);
+  assert.strictEqual(wind.direction_deg, null);
+  assert.strictEqual(wind.confidence, 'none');
+});
+
+test('estimateWind: dobberen (< 2 kn) telt niet mee', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 315, seconds: 300, speed_kn: 1 },
+    { heading_deg: 45, seconds: 300, speed_kn: 1 },
+  ]));
+  const wind = SA.estimateWind(points);
+  assert.strictEqual(wind.confidence, 'none');
 });
