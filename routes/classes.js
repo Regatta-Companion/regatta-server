@@ -2,7 +2,7 @@
 'use strict';
 
 const express = require('express');
-const { authMiddleware, adminMiddleware, seriesAccessMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware, seriesAccessMiddleware, raceAccessMiddleware } = require('../middleware/auth');
 
 // Leesbare tekens: geen 0/O, 1/I/L verwarring
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -26,7 +26,7 @@ function createClassesRouter(db) {
   router.use(authMiddleware);
 
   // ── POST /api/races/:raceId/classes — admin maakt klasse aan per wedstrijd ─
-  router.post('/races/:raceId/classes', adminMiddleware, (req, res) => {
+  router.post('/races/:raceId/classes', adminMiddleware, raceAccessMiddleware('raceId'), (req, res) => {
     const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.raceId);
     if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
 
@@ -144,7 +144,7 @@ function createClassesRouter(db) {
 
     const tracks = db.prepare(`
       SELECT t.id, t.name, t.recorded_at, t.duration_seconds, t.distance_meters,
-             t.max_speed_knots, t.avg_speed_knots, t.point_count,
+             t.max_speed_knots, t.avg_speed_knots, t.wind_direction_deg, t.point_count,
              r.id AS race_id, r.name AS race_name, r.race_date,
              u.email AS user_email, rt.linked_at
       FROM race_tracks rt

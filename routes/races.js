@@ -102,7 +102,7 @@ function createRacesRouter(db, tracksDir) {
   });
 
   // ── POST /:id/tracks — admin links a track to a race ───────────────────────
-  router.post('/:id/tracks', adminMiddleware, (req, res) => {
+  router.post('/:id/tracks', adminMiddleware, raceAccessMiddleware(), (req, res) => {
     const race = db.prepare('SELECT id FROM races WHERE id = ?').get(req.params.id);
     if (!race) return res.status(404).json({ error: 'Wedstrijd niet gevonden.' });
 
@@ -129,7 +129,7 @@ function createRacesRouter(db, tracksDir) {
   });
 
   // ── DELETE /:id/tracks/:trackId — admin unlinks a track ────────────────────
-  router.delete('/:id/tracks/:trackId', adminMiddleware, (req, res) => {
+  router.delete('/:id/tracks/:trackId', adminMiddleware, raceAccessMiddleware(), (req, res) => {
     const link = db.prepare(
       'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ?'
     ).get(req.params.id, req.params.trackId);

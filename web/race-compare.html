@@ -365,6 +365,17 @@
       return userTrack ? (userTrack.series_class_name || userTrack.class_name) : null;
     }
 
+    // Eerder gekozen klasse wint ('' = alle klassen), mits die in deze race bestaat;
+    // anders eigen klasse of de eerste beschikbare.
+    function resolveDefaultClass(trackList) {
+      const saved = sessionStorage.getItem('compareClass');
+      const available = getAvailableClasses(trackList);
+      if (saved === '') return null;
+      if (saved && available.includes(saved)) return saved;
+      const userClass = findUserClass(trackList);
+      return userClass || (available.length > 0 ? available[0] : null);
+    }
+
     function applyClassFilter() {
       if (!currentClass) {
         tracks = [...allTracks];
@@ -410,11 +421,7 @@
         const raceTracks = await apiGet('/races/' + raceId + '/tracks') || [];
         allTracks = Array.isArray(raceTracks) ? raceTracks : [];
 
-        // Set default class from sessionStorage, user's class, or first class
-        const savedClass = sessionStorage.getItem('compareClass');
-        const userClass = findUserClass(allTracks);
-        const allClasses = getAvailableClasses(allTracks);
-        currentClass = savedClass || userClass || (allClasses.length > 0 ? allClasses[0] : null);
+        currentClass = resolveDefaultClass(allTracks);
 
         // Te weinig boten in deze klasse? Val terug op alle klassen.
         if (currentClass && !applyClassFilter()) {

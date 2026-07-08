@@ -545,6 +545,17 @@
       return userTrack ? (userTrack.series_class_name || userTrack.class_name) : null;
     }
 
+    // Eerder gekozen klasse wint ('' = alle klassen), mits die in deze race bestaat;
+    // anders eigen klasse of de eerste beschikbare.
+    function resolveDefaultClass(trackList) {
+      const saved = sessionStorage.getItem('compareClass');
+      const available = getAvailableClasses(trackList);
+      if (saved === '') return null;
+      if (saved && available.includes(saved)) return saved;
+      const userClass = findUserClass(trackList);
+      return userClass || (available.length > 0 ? available[0] : null);
+    }
+
     async function onClassChange(cls) {
       currentClass = cls || null;
       sessionStorage.setItem('compareClass', currentClass || '');
@@ -615,11 +626,7 @@
 
         tracks = Array.isArray(raceTracks) ? raceTracks : [];
 
-        // Set default class: user's own class, or first available
-        const userClass = findUserClass(tracks);
-        const allClasses = getAvailableClasses(tracks);
-        currentClass = userClass || (allClasses.length > 0 ? allClasses[0] : null);
-        sessionStorage.setItem('compareClass', currentClass || '');
+        currentClass = resolveDefaultClass(tracks);
 
         container.innerHTML = buildRaceHTML(race, tracks, seriesRaces);
         initMap();
