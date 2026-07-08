@@ -118,3 +118,37 @@ test('segmentLegs: korte uitschieter wordt samengevoegd', () => {
   const legs = SA.segmentLegs(points, 0);
   assert.strictEqual(legs.length, 1);
 });
+
+test('detectManeuvers: kruisrakken geven overstagslagen', () => {
+  const segs = [];
+  for (let i = 0; i < 4; i++) {
+    segs.push({ heading_deg: 315, seconds: 120, speed_kn: 5 });
+    segs.push({ heading_deg: 45, seconds: 120, speed_kn: 5 });
+  }
+  const points = SA.computeHeadings(makeTrack(segs));
+  const legs = SA.segmentLegs(points, 0);
+  const mans = SA.detectManeuvers(points, legs, 0);
+  assert.strictEqual(mans.length, 7); // 8 rakken → 7 wissels
+  assert.ok(mans.every(m => m.type === 'overstag'));
+});
+
+test('detectManeuvers: ruime zigzag geeft gijpen', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 135, seconds: 120, speed_kn: 5 },
+    { heading_deg: 225, seconds: 120, speed_kn: 5 },
+    { heading_deg: 135, seconds: 120, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, 0);
+  const mans = SA.detectManeuvers(points, legs, 0);
+  assert.strictEqual(mans.length, 2);
+  assert.ok(mans.every(m => m.type === 'gijp'));
+});
+
+test('detectManeuvers: zonder wind geen manoeuvres', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 315, seconds: 120, speed_kn: 5 },
+    { heading_deg: 45, seconds: 120, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, null);
+  assert.deepStrictEqual(SA.detectManeuvers(points, legs, null), []);
+});

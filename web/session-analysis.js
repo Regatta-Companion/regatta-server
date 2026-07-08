@@ -228,5 +228,77 @@
     return legs;
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs };
+  // Ligt target op de korte boog van from naar to?
+  function arcContains(from, to, target) {
+    const span = angleDiff(from, to);
+    const t = angleDiff(from, target);
+    return span >= 0 ? (t >= 0 && t <= span) : (t <= 0 && t >= span);
+  }
+
+  // Gemiddelde snelheid in de secondes [fromS, toS] rond index idx (negatief = ervoor)
+  function avgSpeedAround(points, idx, fromS, toS) {
+    if (!points[idx].time) return null;
+    const t0 = new Date(points[idx].time).getTime();
+    let sum = 0, n = 0;
+    for (const pt of points) {
+      if (!pt.time || pt.speed_kn == null) continue;
+      const dt = (new Date(pt.time).getTime() - t0) / 1000;
+      if (dt >= fromS && dt <= toS) { sum += pt.speed_kn; n++; }
+    }
+    return n ? sum / n : null;
+  }
+
+  // Manoeuvres op rakgrenzen: koerswissel ≥ 60° die de windrichting kruist
+  // (overstag) of de wind+180 (gijp).
+  function detectManeuvers(points, legs, windDeg) {
+    if (windDeg == null) return [];
+    const out = [];
+    for (let k = 1; k < legs.length; k++) {
+      const a = legs[k - 1], b = legs[k];
+      if (a.avg_heading_deg == null || b.avg_heading_deg == null) continue;
+      if (Math.abs(angleDiff(a.avg_heading_deg, b.avg_heading_deg)) < 60) continue;
+      let type = null;
+      if (arcContains(a.avg_heading_deg, b.avg_heading_deg, windDeg)) type = 'overstag';
+      else if (arcContains(a.avg_heading_deg, b.avg_heading_deg, (windDeg + 180) % 360)) type = 'gijp';
+      if (!type) continue;
+
+      const idx = b.startIdx;
+      const before = avgSpeedAround(points, idx, -30, -5); // snelheid vóór de bocht
+      // minimum snelheid binnen ±15 s van de bocht
+      let minSpd = null;
+      if (points[idx].time) {
+        const t0 = new Date(points[idx].time).getTime();
+        for (const pt of points) {
+          if (!pt.time || pt.speed_kn == null) continue;
+          const dt = Math.abs((new Date(pt.time).getTime() - t0) / 1000);
+          if (dt <= 15 && (minSpd == null || pt.speed_kn < minSpd)) minSpd = pt.speed_kn;
+        }
+      }
+      const loss = before != null && minSpd != null ? Math.max(0, before - minSpd) : null;
+
+      // hersteltijd: eerste moment ná de bocht dat de snelheid ≥ 90% van 'before' is
+      let recovery = null;
+      if (before != null && points[idx].time) {
+        const t0 = new Date(points[idx].time).getTime();
+        for (let i = idx; i < points.length; i++) {
+          const pt = points[i];
+          if (!pt.time || pt.speed_kn == null) continue;
+          const dt = (new Date(pt.time).getTime() - t0) / 1000;
+          if (dt > 120) break;
+          if (pt.speed_kn >= before * 0.9) { recovery = Math.round(dt); break; }
+        }
+      }
+
+      out.push({
+        idx, type,
+        time: points[idx].time || null,
+        lat: points[idx].lat, lon: points[idx].lon,
+        speed_loss_kn: loss != null ? Math.round(loss * 10) / 10 : null,
+        recovery_s: recovery,
+      });
+    }
+    return out;
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers };
 });
