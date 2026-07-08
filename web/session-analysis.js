@@ -118,5 +118,115 @@
     return { direction_deg: Math.round(wind), confidence };
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind };
+  // Punt van zeil op basis van true wind angle (0–180)
+  function twaCategory(twa) {
+    if (twa < 60) return 'aan-de-wind';
+    if (twa < 120) return 'halve-wind';
+    if (twa < 160) return 'ruime-wind';
+    return 'voor-de-wind';
+  }
+
+  function makeLeg(points, startIdx, endIdx, windDeg) {
+    const headings = [];
+    let dist = 0, maxSpd = null, spdSum = 0, spdN = 0;
+    for (let i = startIdx; i <= endIdx; i++) {
+      if (points[i].heading_deg != null) headings.push(points[i].heading_deg);
+      if (i > startIdx) dist += haversineM(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+      const s = points[i].speed_kn;
+      if (s != null) { spdSum += s; spdN++; if (maxSpd == null || s > maxSpd) maxSpd = s; }
+    }
+    const avgHeading = circularMean(headings);
+    const t0 = points[startIdx].time, t1 = points[endIdx].time;
+    const duration = t0 && t1 ? (new Date(t1) - new Date(t0)) / 1000 : null;
+    let twa = null, category = null, tack = null;
+    if (windDeg != null && avgHeading != null) {
+      const d = angleDiff(windDeg, avgHeading);
+      twa = Math.abs(d);
+      category = twaCategory(twa);
+      tack = d >= 0 ? 'bakboord' : 'stuurboord';
+    }
+    return {
+      startIdx, endIdx,
+      avg_heading_deg: avgHeading != null ? Math.round(avgHeading) : null,
+      twa_deg: twa != null ? Math.round(twa) : null,
+      category, tack,
+      distance_m: Math.round(dist),
+      duration_s: duration != null ? Math.round(duration) : null,
+      avg_speed_kn: spdN ? Math.round((spdSum / spdN) * 10) / 10 : null,
+      max_speed_kn: maxSpd,
+    };
+  }
+
+  // Knip de track in rakken: nieuw rak zodra de koers ≥ 3 punten achtereen
+  // meer dan 40° van het lopende rakgemiddelde afwijkt.
+  // Rakken korter dan 30 s (of zonder tijd: < 10 punten) gaan op in hun buurman.
+  function segmentLegs(points, windDeg) {
+    if (points.length < 2) return [];
+    const boundaries = [0];
+    let mean = null, deviated = 0;
+    const SUSTAIN = 3;
+    for (let i = 0; i < points.length; i++) {
+      const h = points[i].heading_deg;
+      if (h == null) continue;
+      if (mean == null) { mean = h; continue; }
+      if (Math.abs(angleDiff(mean, h)) > 40) {
+        deviated++;
+        if (deviated >= SUSTAIN) {
+          boundaries.push(i - SUSTAIN + 1);
+          mean = h;
+          deviated = 0;
+        }
+      } else {
+        deviated = 0;
+        mean = (mean + angleDiff(mean, h) * 0.1 + 360) % 360; // langzaam meebewegend gemiddelde
+      }
+    }
+
+    // Bouw legs uit de grenzen
+    let legs = [];
+    for (let b = 0; b < boundaries.length; b++) {
+      const start = boundaries[b];
+      const end = b + 1 < boundaries.length ? boundaries[b + 1] - 1 : points.length - 1;
+      if (end > start) legs.push(makeLeg(points, start, end, windDeg));
+    }
+
+    // Korte rakken samenvoegen met de buurman waarvan de koers het dichtst ligt
+    const tooShort = (leg) => leg.duration_s != null
+      ? leg.duration_s < 30
+      : (leg.endIdx - leg.startIdx) < 10;
+    let merged = true;
+    while (merged && legs.length > 1) {
+      merged = false;
+      for (let i = 0; i < legs.length; i++) {
+        if (!tooShort(legs[i])) continue;
+        const prev = i > 0 ? legs[i - 1] : null;
+        const next = i < legs.length - 1 ? legs[i + 1] : null;
+        const dPrev = prev ? Math.abs(angleDiff(prev.avg_heading_deg, legs[i].avg_heading_deg)) : Infinity;
+        const dNext = next ? Math.abs(angleDiff(next.avg_heading_deg, legs[i].avg_heading_deg)) : Infinity;
+        if (dPrev <= dNext && prev) {
+          legs.splice(i - 1, 2, makeLeg(points, prev.startIdx, legs[i].endIdx, windDeg));
+        } else if (next) {
+          legs.splice(i, 2, makeLeg(points, legs[i].startIdx, next.endIdx, windDeg));
+        } else break;
+        merged = true;
+        break;
+      }
+    }
+
+    // Naburige rakken met (vrijwel) dezelfde koers samenvoegen (< 30° verschil)
+    merged = true;
+    while (merged && legs.length > 1) {
+      merged = false;
+      for (let i = 1; i < legs.length; i++) {
+        if (Math.abs(angleDiff(legs[i - 1].avg_heading_deg, legs[i].avg_heading_deg)) < 30) {
+          legs.splice(i - 1, 2, makeLeg(points, legs[i - 1].startIdx, legs[i].endIdx, windDeg));
+          merged = true;
+          break;
+        }
+      }
+    }
+    return legs;
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs };
 });

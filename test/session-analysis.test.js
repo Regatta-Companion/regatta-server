@@ -71,3 +71,50 @@ test('estimateWind: dobberen (< 2 kn) telt niet mee', () => {
   const wind = SA.estimateWind(points);
   assert.strictEqual(wind.confidence, 'none');
 });
+
+test('twaCategory: grenzen kloppen', () => {
+  assert.strictEqual(SA.twaCategory(30), 'aan-de-wind');
+  assert.strictEqual(SA.twaCategory(59.9), 'aan-de-wind');
+  assert.strictEqual(SA.twaCategory(60), 'halve-wind');
+  assert.strictEqual(SA.twaCategory(119.9), 'halve-wind');
+  assert.strictEqual(SA.twaCategory(120), 'ruime-wind');
+  assert.strictEqual(SA.twaCategory(160), 'voor-de-wind');
+  assert.strictEqual(SA.twaCategory(180), 'voor-de-wind');
+});
+
+test('segmentLegs: drie duidelijke rakken worden drie legs', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 45, seconds: 120, speed_kn: 5 },
+    { heading_deg: 135, seconds: 120, speed_kn: 6 },
+    { heading_deg: 45, seconds: 120, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, 0); // wind uit het noorden
+  assert.strictEqual(legs.length, 3);
+  assert.strictEqual(legs[0].category, 'aan-de-wind');
+  assert.strictEqual(legs[1].category, 'ruime-wind');
+  assert.strictEqual(legs[2].category, 'aan-de-wind');
+  assert.strictEqual(legs[0].tack, 'bakboord');   // koers 45, wind 0 → diff +45
+  assert.ok(legs[1].avg_speed_kn > 5.5 && legs[1].avg_speed_kn < 6.5);
+  assert.ok(legs[0].duration_s > 100 && legs[0].duration_s < 140);
+});
+
+test('segmentLegs: zonder wind geen categorie, wel rakken', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 45, seconds: 120, speed_kn: 5 },
+    { heading_deg: 135, seconds: 120, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, null);
+  assert.strictEqual(legs.length, 2);
+  assert.strictEqual(legs[0].category, null);
+  assert.strictEqual(legs[0].tack, null);
+});
+
+test('segmentLegs: korte uitschieter wordt samengevoegd', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 45, seconds: 300, speed_kn: 5 },
+    { heading_deg: 135, seconds: 8, speed_kn: 5 }, // < 30 s: geen eigen rak
+    { heading_deg: 45, seconds: 300, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, 0);
+  assert.strictEqual(legs.length, 1);
+});
