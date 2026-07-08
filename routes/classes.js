@@ -233,17 +233,23 @@ function createClassesRouter(db) {
         'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ?'
       ).get(bestRace.id, track_id);
 
+      // Geef terug aan welke wedstrijd de track is gekoppeld,
+      // zodat de gebruiker de automatische race-keuze kan controleren.
+      const raceInfo = db.prepare(
+        'SELECT id, name, race_date FROM races WHERE id = ?'
+      ).get(bestRace.id);
+
       if (existing) {
         db.prepare(
           'UPDATE race_tracks SET series_class_id = ?, class_id = NULL WHERE race_id = ? AND track_id = ?'
         ).run(seriesCls.id, bestRace.id, track_id);
-        return res.json({ ok: true, updated: true });
+        return res.json({ ok: true, updated: true, race_id: raceInfo.id, race_name: raceInfo.name, race_date: raceInfo.race_date });
       }
 
       db.prepare(
         'INSERT INTO race_tracks (race_id, track_id, user_id, series_class_id) VALUES (?, ?, ?, ?)'
       ).run(bestRace.id, track_id, req.userId, seriesCls.id);
-      return res.status(201).json({ ok: true });
+      return res.status(201).json({ ok: true, race_id: raceInfo.id, race_name: raceInfo.name, race_date: raceInfo.race_date });
     }
 
     // ── Wedstrijdklasse ───────────────────────────────────────────────────────
@@ -256,17 +262,21 @@ function createClassesRouter(db) {
       'SELECT 1 FROM race_tracks WHERE race_id = ? AND track_id = ?'
     ).get(cls.race_id, track_id);
 
+    const raceInfo = db.prepare(
+      'SELECT id, name, race_date FROM races WHERE id = ?'
+    ).get(cls.race_id);
+
     if (existing) {
       db.prepare(
         'UPDATE race_tracks SET class_id = ?, series_class_id = NULL WHERE race_id = ? AND track_id = ?'
       ).run(cls.class_id, cls.race_id, track_id);
-      return res.json({ ok: true, updated: true });
+      return res.json({ ok: true, updated: true, race_id: raceInfo.id, race_name: raceInfo.name, race_date: raceInfo.race_date });
     }
 
     db.prepare(
       'INSERT INTO race_tracks (race_id, track_id, user_id, class_id) VALUES (?, ?, ?, ?)'
     ).run(cls.race_id, track_id, req.userId, cls.class_id);
-    return res.status(201).json({ ok: true });
+    return res.status(201).json({ ok: true, race_id: raceInfo.id, race_name: raceInfo.name, race_date: raceInfo.race_date });
   });
 
   // ── GET /api/races/:raceId/classes/:classId/tracks — resultaten per wedstrijdklasse

@@ -398,7 +398,7 @@
     }
 
     function openTrack(id) {
-      window.location.href = 'race.html?id=' + id;
+      window.location.href = 'race.html?track=' + id;
     }
 
     function renderTracks(list) {
@@ -534,11 +534,16 @@
               },
               body: JSON.stringify({ code, track_id: trackId }),
             });
+            const data = await res.json();
             if (!res.ok) {
-              const data = await res.json();
               throw new Error(data.error || 'Mislukt');
             }
-            alert('Track gekoppeld!');
+            const when = data.race_date ? ' (' + fmtDate(data.race_date) + ')' : '';
+            const raceName = data.race_name || 'wedstrijd';
+            if (data.race_id && confirm('Track gekoppeld aan "' + raceName + '"' + when + '.\n\nWedstrijd nu bekijken?')) {
+              window.location.href = 'race.html?race=' + data.race_id;
+              return;
+            }
             inline.style.display = 'none';
             joinBtn.style.display = '';
           } catch (e) {

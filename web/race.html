@@ -503,9 +503,11 @@
     checkAdmin().then(() => renderHeader('race'));
 
     const urlParams = new URLSearchParams(window.location.search);
-    const trackId = urlParams.get('id');
-    const raceId = sessionStorage.getItem('raceId');
-    console.log('race.html loaded, raceId from sessionStorage:', raceId);
+    // ?track= toont een losse track; ?id= blijft werken voor oude links
+    const trackId = urlParams.get('track') || urlParams.get('id');
+    // ?race= is leidend; sessionStorage is fallback voor de nav-tabs zonder parameter
+    const raceId = urlParams.get('race') || sessionStorage.getItem('raceId');
+    if (raceId) sessionStorage.setItem('raceId', raceId);
     const BOAT_COLORS = ['#1d4ed8', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#0891b2', '#65a30d'];
 
     let map;
@@ -576,7 +578,7 @@
 
     function switchRace(newRaceId) {
       sessionStorage.setItem('raceId', newRaceId);
-      window.location.reload();
+      window.location.href = 'race.html?race=' + newRaceId;
     }
 
     // ── Load: individual track (via ?id=) or race (via sessionStorage) ──
@@ -725,6 +727,9 @@
         });
       });
 
+      if (ungrouped.length && groupNames.length) {
+        html += `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);padding:10px 0 4px">Zonder klasse</div>`;
+      }
       ungrouped.forEach((t, j) => {
         const i = t._origIdx;
         const boatName = t.boat_name || 'Onbekende boot';
@@ -772,8 +777,8 @@
       // Build class dropdown
       const classes = getAvailableClasses(raceTracks || []);
       let classSwitcher = '';
-      if (classes.length > 1) {
-        const classOpts = classes.map(c =>
+      if (classes.length >= 1) {
+        const classOpts = `<option value="" ${!currentClass ? 'selected' : ''}>Alle klassen</option>` + classes.map(c =>
           `<option value="${escHtml(c)}" ${c === currentClass ? 'selected' : ''}>${escHtml(c)}</option>`
         ).join('');
         classSwitcher = `
@@ -795,7 +800,7 @@
           </div>
           <div class="race-actions">
             <button class="btn-fullscreen" onclick="openFullscreen()">⛶ Volledig scherm</button>
-            <button class="btn btn-secondary btn-sm" onclick="window.location.href='race-compare.html'">Vergelijk boten</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.location.href='race-compare.html?race=' + encodeURIComponent(raceId)">Vergelijk boten</button>
           </div>
         </div>
 

@@ -323,7 +323,9 @@
     requireAuth();
     checkAdmin().then(() => renderHeader('compare'));
 
-    const raceId = sessionStorage.getItem('raceId');
+    // ?race= is leidend; sessionStorage is fallback voor de nav-tabs zonder parameter
+    const raceId = new URLSearchParams(window.location.search).get('race') || sessionStorage.getItem('raceId');
+    if (raceId) sessionStorage.setItem('raceId', raceId);
     const BOAT_COLORS = ['#1d4ed8', '#059669', '#d97706', '#dc2626', '#7c3aed', '#db2777', '#0891b2', '#65a30d'];
 
     // ── State ──
@@ -386,7 +388,7 @@
         document.getElementById('compare-content').innerHTML = `
           <div class="loading-state">
             <p>Minder dan 2 boten in deze klasse om te vergelijken.</p>
-            <p style="margin-top:12px"><a href="race.html">Terug naar race</a></p>
+            <p style="margin-top:12px"><a href="#" onclick="onClassChange('');return false">Toon alle klassen</a> · <a href="race.html">Terug naar race</a></p>
           </div>`;
         return;
       }
@@ -414,6 +416,11 @@
         const allClasses = getAvailableClasses(allTracks);
         currentClass = savedClass || userClass || (allClasses.length > 0 ? allClasses[0] : null);
 
+        // Te weinig boten in deze klasse? Val terug op alle klassen.
+        if (currentClass && !applyClassFilter()) {
+          currentClass = null;
+        }
+
         if (!applyClassFilter() || tracks.length < 2) {
           document.getElementById('compare-content').innerHTML = `
             <div class="loading-state">
@@ -423,7 +430,7 @@
           return;
         }
 
-        document.getElementById('breadcrumb-race-link').href = 'race.html';
+        document.getElementById('breadcrumb-race-link').href = 'race.html?race=' + encodeURIComponent(raceId);
         await fetchCompareData();
         renderCompare();
       } catch (e) {
@@ -468,10 +475,11 @@
     function renderCompare() {
       const classes = getAvailableClasses(allTracks);
       let classSwitcher = '';
-      if (classes.length > 1) {
+      if (classes.length >= 1) {
         classSwitcher = `
           <div style="margin-bottom:16px">
             <select id="class-select" onchange="onClassChange(this.value)" style="padding:5px 10px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--fg);max-width:280px;cursor:pointer">
+              <option value="" ${!currentClass ? 'selected' : ''}>Alle klassen</option>
               ${classes.map(c => `<option value="${escHtml(c)}" ${c === currentClass ? 'selected' : ''}>${escHtml(c)}</option>`).join('')}
             </select>
             <span style="font-size:11px;color:var(--muted);margin-left:6px">klasse</span>
