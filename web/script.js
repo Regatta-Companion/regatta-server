@@ -1,5 +1,6 @@
 // Regatta Screen — shared client
-const API = 'https://regatta.fhettinga.nl/api';
+// Zelfde origin als de webpagina's: werkt op productie én bij lokaal draaien
+const API = '/api';
 
 /* ── Auth helpers ─────────────────────────────────────────── */
 function getToken() { return localStorage.getItem('regatta_token'); }

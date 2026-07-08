@@ -338,7 +338,7 @@
 
       try {
         const endpoint = isRegister ? '/auth/register' : '/auth/login';
-        const data = await fetch('https://regatta.fhettinga.nl/api' + endpoint, {
+        const data = await fetch('/api' + endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email.value.trim(), password: password.value }),

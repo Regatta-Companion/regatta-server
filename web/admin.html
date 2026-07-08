@@ -246,7 +246,15 @@
 
     // ── Delete series ──────────────────────────────────────────────────────
     async function delSeries(id) {
-      if (!confirm('Reeks verwijderen? Wedstrijden blijven bewaard.')) return;
+      const s = allSeries.find(x => x.id === id);
+      const name = s ? s.name : 'deze reeks';
+      const raceCount = s ? (s.race_count || 0) : 0;
+      const msg = 'Reeks "' + name + '" verwijderen?\n\n' +
+        '• De ' + raceCount + ' wedstrijd(en) blijven bewaard als losse wedstrijden\n' +
+        '• Alle reeksklassen (en hun join-codes) worden verwijderd\n' +
+        '• Deelnemers raken hun klasse-indeling in deze reeks kwijt\n\n' +
+        'Dit kan niet ongedaan worden gemaakt.';
+      if (!confirm(msg)) return;
       try {
         await apiDelete('/series/' + id);
         await loadAll();
