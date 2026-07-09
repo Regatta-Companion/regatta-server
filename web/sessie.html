@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Regatta Screen — Sessie</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    .session-page { max-width: 1100px; margin: 0 auto; padding: 20px 24px 80px; width: 100%; }
+    .session-page h2 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 20px; }
+    .stat-cell { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+    .stat-cell .val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
+    .stat-cell .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    #map { height: 420px; border-radius: var(--radius-md); border: 1px solid var(--border); }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+    .legend .sw { display: inline-block; width: 14px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 18px; margin-top: 16px; }
+    .panel h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 10px; }
+    .wind-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .wind-arrow { font-size: 26px; display: inline-block; transition: transform 0.2s; }
+    .wind-row input[type=range] { flex: 1; min-width: 160px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .loading-state, .error-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="app-header"></header>
+
+  <div class="session-page">
+    <div id="session-content">
+      <div class="loading-state"><p>Sessie laden…</p></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="script.js"></script>
+  <script src="session-analysis.js"></script>
+  <script>
+    requireAuth();
+    checkAdmin().then(() => renderHeader(''));
+
+    const params = new URLSearchParams(window.location.search);
+    const trackId = params.get('track');
+    const raceId = params.get('race');
+
+    const CAT_COLORS = {
+      'aan-de-wind': '#1d4ed8', 'halve-wind': '#059669',
+      'ruime-wind': '#d97706', 'voor-de-wind': '#dc2626', null: '#64748b',
+    };
+    const CAT_LABELS = {
+      'aan-de-wind': 'Aan de wind', 'halve-wind': 'Halve wind',
+      'ruime-wind': 'Ruime wind', 'voor-de-wind': 'Voor de wind', null: 'Onbekend',
+    };
+
+    let session = null;      // analyzeSession-resultaat
+    let trackMeta = null;    // { name, recorded_at }
+    let rawPoints = null;
+    let map = null;
+    let legLayers = [];
+
+    function windKey() { return 'windOverride:' + trackId; }
+
+    async function loadSession() {
+      const container = document.getElementById('session-content');
+      if (!trackId) {
+        container.innerHTML = '<div class="error-state"><p>Geen track opgegeven. <a href="dashboard.html">Ga terug</a>.</p></div>';
+        return;
+      }
+      try {
+        if (raceId) {
+          const results = await apiPost('/races/' + raceId + '/compare-data', { track_ids: [parseInt(trackId, 10)] });
+          if (!Array.isArray(results) || !results.length) throw new Error('Track niet gevonden in deze wedstrijd.');
+          rawPoints = results[0].points;
+          trackMeta = { name: results[0].label, recorded_at: results[0].start_time };
+        } else {
+          const data = await apiGet('/tracks/' + trackId + '/points');
+          if (!data || data.error) throw new Error(data?.error || 'Track niet gevonden.');
+          rawPoints = data.points;
+          trackMeta = { name: data.name, recorded_at: data.recorded_at };
+        }
+
+        const savedWind = localStorage.getItem(windKey());
+        const override = savedWind != null && savedWind !== '' ? parseInt(savedWind, 10) : null;
+        session = SessionAnalysis.analyzeSession(rawPoints, { windOverrideDeg: override });
+        renderAll();
+      } catch (e) {
+        container.innerHTML = '<div class="error-state"><p>Kon sessie niet laden: <code>' +
+          escHtml(e.message || 'onbekende fout') + '</code>. <a href="dashboard.html">Ga terug</a>.</p></div>';
+      }
+    }
+
+    // Windcorrectie: null = terug naar schatting; herrekent en hertekent alles
+    function setWindOverride(deg) {
+      if (deg == null) localStorage.removeItem(windKey());
+      else localStorage.setItem(windKey(), String(deg));
+      session = SessionAnalysis.analyzeSession(rawPoints, { windOverrideDeg: deg });
+      renderAll();
+    }
+
+    function hasTimes() {
+      return session.points.length > 1 && !!session.points[0].time && !!session.points[1].time;
+    }
+
+    function totalStats() {
+      const pts = session.points;
+      let dist = 0;
+      for (let i = 1; i < pts.length; i++) {
+        dist += SessionAnalysis.haversineM(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon);
+      }
+      const speeds = pts.map(p => p.speed_kn).filter(s => s != null);
+      const dur = hasTimes()
+        ? (new Date(pts[pts.length-1].time) - new Date(pts[0].time)) / 1000 : null;
+      return {
+        distance_m: dist,
+        duration_s: dur,
+        max_kn: speeds.length ? Math.max(...speeds) : null,
+        avg_kn: speeds.length ? speeds.reduce((a,b) => a+b, 0) / speeds.length : null,
+      };
+    }
+
+    function renderAll() {
+      const container = document.getElementById('session-content');
+      const s = totalStats();
+      const kn = v => v != null ? v.toFixed(1) + ' kn' : '—';
+      const dist = s.distance_m >= 1000 ? (s.distance_m/1000).toFixed(1) + ' km' : Math.round(s.distance_m) + ' m';
+
+      container.innerHTML = `
+        <div class="breadcrumb">
+          <a href="dashboard.html">Mijn data</a><span>·</span>
+          <span>${escHtml(trackMeta.name || 'Sessie')}</span>
+        </div>
+        <div id="session-header">
+          <h2>${escHtml(trackMeta.name || 'Sessie')}</h2>
+          <p class="muted">${fmtDate(trackMeta.recorded_at)}</p>
+          <div class="stat-grid">
+            <div class="stat-cell"><div class="val">${kn(s.max_kn)}</div><div class="lbl">Max</div></div>
+            <div class="stat-cell"><div class="val">${kn(s.avg_kn)}</div><div class="lbl">Gemiddeld</div></div>
+            <div class="stat-cell"><div class="val">${dist}</div><div class="lbl">Afstand</div></div>
+            <div class="stat-cell"><div class="val">${s.duration_s != null ? fmtDuration(s.duration_s) : '—'}</div><div class="lbl">Duur</div></div>
+          </div>
+        </div>
+        <div id="map"></div>
+        <div class="legend">${
+          Object.keys(CAT_COLORS)
+            .filter(c => session.legs.some(l => String(l.category) === c))
+            .map(c => `<span><span class="sw" style="background:${CAT_COLORS[c]}"></span>${CAT_LABELS[c]}</span>`)
+            .join('')
+        }</div>
+        <div class="panel" id="wind-panel"></div>
+        <div id="playback-section"></div>
+        <div id="report-section"></div>
+      `;
+      renderMap();
+      renderWindPanel();
+      if (typeof renderPlayback === 'function') renderPlayback();   // Task 7
+      if (typeof renderReport === 'function') renderReport();       // Task 8
+    }
+
+    function renderMap() {
+      map = L.map('map');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap', maxZoom: 19,
+      }).addTo(map);
+
+      legLayers = [];
+      const allCoords = [];
+      for (const leg of session.legs) {
+        const coords = [];
+        for (let i = leg.startIdx; i <= leg.endIdx; i++) {
+          coords.push([session.points[i].lat, session.points[i].lon]);
+        }
+        allCoords.push(...coords);
+        const line = L.polyline(coords, {
+          color: CAT_COLORS[String(leg.category)], weight: 4, opacity: 0.9,
+        }).addTo(map);
+        line.bindTooltip(
+          `${CAT_LABELS[String(leg.category)]} · ${(leg.distance_m/1000).toFixed(2)} km · ` +
+          `${leg.avg_speed_kn != null ? leg.avg_speed_kn.toFixed(1) + ' kn gem.' : ''}`
+        );
+        legLayers.push(line);
+      }
+      if (allCoords.length) map.fitBounds(L.latLngBounds(allCoords).pad(0.1));
+
+      // Manoeuvre-markers
+      for (const m of session.maneuvers) {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="font-size:16px;line-height:16px">${m.type === 'overstag' ? '⤴' : '⤵'}</div>`,
+          iconSize: [16, 16],
+        });
+        const mk = L.marker([m.lat, m.lon], { icon }).addTo(map);
+        mk.bindTooltip(
+          `${m.type === 'overstag' ? 'Overstag' : 'Gijp'}` +
+          (m.speed_loss_kn != null ? ` · −${m.speed_loss_kn.toFixed(1)} kn` : '') +
+          (m.recovery_s != null ? ` · hersteld in ${m.recovery_s}s` : '')
+        );
+        mk.on('click', () => { if (typeof seekToIdx === 'function') seekToIdx(m.idx); }); // Task 7
+      }
+    }
+
+    function renderWindPanel() {
+      const panel = document.getElementById('wind-panel');
+      const est = session.wind.estimated;
+      const used = session.wind.used_deg;
+      const isOverride = localStorage.getItem(windKey()) != null;
+
+      const confLabel = { high: 'hoge betrouwbaarheid', low: 'lage betrouwbaarheid', none: '' }[est.confidence];
+      let statusHtml;
+      if (est.direction_deg != null) {
+        statusHtml = `Geschat: <strong>${est.direction_deg}°</strong> <span class="muted">(${confLabel})</span>`;
+      } else {
+        statusHtml = `<span class="muted">Windrichting onbekend — geen kruispatroon gevonden. Stel handmatig in.</span>`;
+      }
+
+      panel.innerHTML = `
+        <h4>Windrichting</h4>
+        <div class="wind-row">
+          <span class="wind-arrow" style="transform: rotate(${(used != null ? used : 0) + 180}deg)">↑</span>
+          <span id="wind-value" style="font-family:var(--font-mono);font-weight:700;min-width:48px">${used != null ? used + '°' : '—'}</span>
+          <input type="range" id="wind-slider" min="0" max="359" step="1" value="${used != null ? used : 0}" />
+          <button class="btn btn-secondary btn-sm" id="wind-reset" ${!isOverride ? 'disabled' : ''}>Gebruik schatting</button>
+        </div>
+        <p class="muted" style="margin-top:8px">${statusHtml}${isOverride ? ' · handmatig aangepast' : ''}</p>
+      `;
+
+      const slider = document.getElementById('wind-slider');
+      slider.addEventListener('change', () => setWindOverride(parseInt(slider.value, 10)));
+      slider.addEventListener('input', () => {
+        document.getElementById('wind-value').textContent = slider.value + '°';
+      });
+      document.getElementById('wind-reset').addEventListener('click', () => setWindOverride(null));
+    }
+
+    loadSession();
+  </script>
+</body>
+</html>
