@@ -300,5 +300,76 @@
     return out;
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers };
+  function buildReport(points, legs, maneuvers) {
+    // Beste 10 seconden: rollend venster op tijd
+    let best = null;
+    for (let i = 0; i < points.length; i++) {
+      if (!points[i].time) continue;
+      const t0 = new Date(points[i].time).getTime();
+      let sum = 0, n = 0, j = i;
+      while (j < points.length && points[j].time &&
+             (new Date(points[j].time).getTime() - t0) / 1000 <= 10) {
+        if (points[j].speed_kn != null) { sum += points[j].speed_kn; n++; }
+        j++;
+      }
+      if (n >= 3) {
+        const avg = sum / n;
+        if (!best || avg > best.avg_speed_kn) {
+          best = { start_idx: i, end_idx: j - 1, avg_speed_kn: Math.round(avg * 10) / 10 };
+        }
+      }
+    }
+
+    // Langste rak op afstand
+    let longestIdx = null;
+    for (let i = 0; i < legs.length; i++) {
+      if (longestIdx == null || legs[i].distance_m > legs[longestIdx].distance_m) longestIdx = i;
+    }
+
+    // Opkruishoek: circulair gemiddelde koers per boeg van de aan-de-windse rakken
+    const upP = legs.filter(l => l.category === 'aan-de-wind' && l.tack === 'bakboord');
+    const upS = legs.filter(l => l.category === 'aan-de-wind' && l.tack === 'stuurboord');
+    let beatAngle = null;
+    if (upP.length && upS.length) {
+      const hP = circularMean(upP.map(l => l.avg_heading_deg), upP.map(l => l.distance_m));
+      const hS = circularMean(upS.map(l => l.avg_heading_deg), upS.map(l => l.distance_m));
+      beatAngle = Math.round(Math.abs(angleDiff(hP, hS)));
+    }
+
+    const tacks = maneuvers.filter(m => m.type === 'overstag').length;
+    const gybes = maneuvers.filter(m => m.type === 'gijp').length;
+    const losses = maneuvers.map(m => m.speed_loss_kn).filter(v => v != null);
+    const avgLoss = losses.length
+      ? Math.round((losses.reduce((a, b) => a + b, 0) / losses.length) * 10) / 10 : null;
+
+    const dist = {};
+    for (const leg of legs) {
+      if (!leg.category) continue;
+      if (!dist[leg.category]) dist[leg.category] = { time_s: 0, distance_m: 0 };
+      dist[leg.category].time_s += leg.duration_s || 0;
+      dist[leg.category].distance_m += leg.distance_m || 0;
+    }
+
+    return {
+      best_10s: best,
+      longest_leg_idx: longestIdx,
+      beat_angle_deg: beatAngle,
+      maneuvers: { tacks, gybes, avg_loss_kn: avgLoss },
+      twa_distribution: dist,
+    };
+  }
+
+  // Orchestrator: hele analyse in één aanroep.
+  function analyzeSession(rawPoints, opts) {
+    const o = opts || {};
+    const points = computeHeadings(rawPoints, o.headingWindow || 5);
+    const estimated = estimateWind(points);
+    const usedDeg = o.windOverrideDeg != null ? o.windOverrideDeg : estimated.direction_deg;
+    const legs = segmentLegs(points, usedDeg);
+    const maneuvers = detectManeuvers(points, legs, usedDeg);
+    const report = buildReport(points, legs, maneuvers);
+    return { points, wind: { estimated, used_deg: usedDeg }, legs, maneuvers, report };
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession };
 });

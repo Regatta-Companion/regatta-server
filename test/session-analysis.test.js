@@ -179,3 +179,54 @@ test('detectManeuvers: bocht die de wind niet kruist is geen manoeuvre', () => {
   const legs = SA.segmentLegs(points, 0);
   assert.deepStrictEqual(SA.detectManeuvers(points, legs, 0), []);
 });
+
+test('buildReport: beste 10 s zit in het snelle stuk', () => {
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 45, seconds: 120, speed_kn: 4 },
+    { heading_deg: 45, seconds: 30, speed_kn: 8 },  // sprint
+    { heading_deg: 45, seconds: 120, speed_kn: 4 },
+  ]));
+  const legs = SA.segmentLegs(points, 0);
+  const report = SA.buildReport(points, legs, []);
+  assert.ok(report.best_10s);
+  assert.ok(report.best_10s.avg_speed_kn > 7, `verwacht > 7, kreeg ${report.best_10s.avg_speed_kn}`);
+  assert.ok(report.best_10s.start_idx >= 115 && report.best_10s.start_idx <= 155);
+});
+
+test('buildReport: opkruishoek uit bakboord- en stuurboordrakken', () => {
+  const segs = [];
+  for (let i = 0; i < 3; i++) {
+    segs.push({ heading_deg: 315, seconds: 120, speed_kn: 5 });
+    segs.push({ heading_deg: 45, seconds: 120, speed_kn: 5 });
+  }
+  const points = SA.computeHeadings(makeTrack(segs));
+  const legs = SA.segmentLegs(points, 0);
+  const mans = SA.detectManeuvers(points, legs, 0);
+  const report = SA.buildReport(points, legs, mans);
+  assert.ok(Math.abs(report.beat_angle_deg - 90) <= 10, `verwacht ~90, kreeg ${report.beat_angle_deg}`);
+  assert.strictEqual(report.maneuvers.tacks, 5);
+  assert.strictEqual(report.maneuvers.gybes, 0);
+  assert.ok(report.twa_distribution['aan-de-wind'].time_s > 600);
+});
+
+test('analyzeSession: override wint van de schatting', () => {
+  const segs = [];
+  for (let i = 0; i < 4; i++) {
+    segs.push({ heading_deg: 315, seconds: 120, speed_kn: 5 });
+    segs.push({ heading_deg: 45, seconds: 120, speed_kn: 5 });
+  }
+  const result = SA.analyzeSession(makeTrack(segs), { windOverrideDeg: 90 });
+  assert.strictEqual(result.wind.used_deg, 90);
+  assert.ok(Math.abs(SA.angleDiff(0, result.wind.estimated.direction_deg)) <= 10);
+  // met wind uit 90 hebben de rakken op koers 45 een twa van 45 → aan de wind
+  const leg45 = result.legs.find(l => Math.abs(SA.angleDiff(45, l.avg_heading_deg)) < 15);
+  assert.strictEqual(leg45.category, 'aan-de-wind');
+});
+
+test('analyzeSession: zonder bruikbare wind geen manoeuvres, wel rakken', () => {
+  const result = SA.analyzeSession(makeTrack([{ heading_deg: 90, seconds: 600, speed_kn: 5 }]));
+  assert.strictEqual(result.wind.used_deg, null);
+  assert.deepStrictEqual(result.maneuvers, []);
+  assert.ok(result.legs.length >= 1);
+  assert.strictEqual(result.report.beat_angle_deg, null);
+});
