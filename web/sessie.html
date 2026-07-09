@@ -391,6 +391,85 @@
       }
     }
 
+    // ── Avondrapport ──────────────────────────────────────────────────────
+    function renderReport() {
+      const sec = document.getElementById('report-section');
+      const r = session.report;
+      const legs = session.legs;
+
+      // Randgeval: korte track → geen rapport
+      const st = totalStats();
+      if (session.points.length < 100 || (st.duration_s != null && st.duration_s < 300)) {
+        sec.innerHTML = '<div class="panel"><p class="muted">Track te kort voor een rapport.</p></div>';
+        return;
+      }
+
+      const cards = [];
+      if (r.best_10s) {
+        cards.push({ val: r.best_10s.avg_speed_kn.toFixed(1) + ' kn', lbl: 'Beste 10 seconden', idx: r.best_10s.start_idx });
+      }
+      if (r.longest_leg_idx != null) {
+        const leg = legs[r.longest_leg_idx];
+        cards.push({ val: (leg.distance_m / 1000).toFixed(2) + ' km', lbl: 'Langste rak', idx: leg.startIdx });
+      }
+      if (r.beat_angle_deg != null) {
+        cards.push({ val: r.beat_angle_deg + '°', lbl: 'Opkruishoek' });
+      }
+      if (r.maneuvers.tacks + r.maneuvers.gybes > 0) {
+        cards.push({
+          val: `${r.maneuvers.tacks}× / ${r.maneuvers.gybes}×`,
+          lbl: 'Overstag / gijp' + (r.maneuvers.avg_loss_kn != null ? ` · gem. −${r.maneuvers.avg_loss_kn.toFixed(1)} kn` : ''),
+        });
+      }
+
+      const catOrder = ['aan-de-wind', 'halve-wind', 'ruime-wind', 'voor-de-wind'];
+      const totalTime = catOrder.reduce((s, c) => s + (r.twa_distribution[c]?.time_s || 0), 0);
+      const distBar = totalTime > 0 ? `
+        <h4 style="margin-top:16px">Tijd per punt van zeil</h4>
+        <div style="display:flex;height:18px;border-radius:9px;overflow:hidden">
+          ${catOrder.filter(c => r.twa_distribution[c]).map(c => {
+            const pct = (r.twa_distribution[c].time_s / totalTime) * 100;
+            return `<div title="${CAT_LABELS[c]} ${Math.round(pct)}%" style="width:${pct}%;background:${CAT_COLORS[c]}"></div>`;
+          }).join('')}
+        </div>` : '';
+
+      const legRows = legs.map((l, i) => `
+        <tr style="cursor:pointer" onclick="seekToIdx(${l.startIdx})">
+          <td>${i + 1}</td>
+          <td><span class="sw" style="display:inline-block;width:10px;height:10px;border-radius:5px;background:${CAT_COLORS[String(l.category)]}"></span> ${CAT_LABELS[String(l.category)]}</td>
+          <td style="text-align:right;font-family:var(--font-mono)">${l.avg_heading_deg != null ? l.avg_heading_deg + '°' : '—'}</td>
+          <td style="text-align:right;font-family:var(--font-mono)">${(l.distance_m / 1000).toFixed(2)} km</td>
+          <td style="text-align:right;font-family:var(--font-mono)">${l.duration_s != null ? fmtDuration(l.duration_s) : '—'}</td>
+          <td style="text-align:right;font-family:var(--font-mono)">${l.avg_speed_kn != null ? l.avg_speed_kn.toFixed(1) : '—'}</td>
+          <td style="text-align:right;font-family:var(--font-mono)">${l.max_speed_kn != null ? l.max_speed_kn.toFixed(1) : '—'}</td>
+        </tr>`).join('');
+
+      sec.innerHTML = `
+        <div class="panel">
+          <h4>Avondrapport</h4>
+          ${session.wind.used_deg == null ? '<p class="muted" style="margin-bottom:10px">Zonder windrichting zijn opkruishoek, manoeuvres en punten van zeil niet beschikbaar — stel de wind hierboven handmatig in.</p>' : ''}
+          <div class="stat-grid">
+            ${cards.map(c => `
+              <div class="stat-cell" ${c.idx != null ? `style="cursor:pointer" onclick="seekToIdx(${c.idx})"` : ''}>
+                <div class="val">${c.val}</div><div class="lbl">${c.lbl}</div>
+              </div>`).join('')}
+          </div>
+          ${distBar}
+          <h4 style="margin-top:16px">Rakken</h4>
+          <div style="overflow-x:auto">
+            <table class="track-table" style="width:100%;font-size:13px;border-collapse:collapse">
+              <thead><tr>
+                <th style="text-align:left">#</th><th style="text-align:left">Punt van zeil</th>
+                <th style="text-align:right">Koers</th><th style="text-align:right">Afstand</th>
+                <th style="text-align:right">Duur</th><th style="text-align:right">Gem. kn</th>
+                <th style="text-align:right">Max kn</th>
+              </tr></thead>
+              <tbody>${legRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+
     loadSession();
   </script>
 </body>
