@@ -126,6 +126,9 @@
       const kn = v => v != null ? v.toFixed(1) + ' kn' : '—';
       const dist = s.distance_m >= 1000 ? (s.distance_m/1000).toFixed(1) + ' km' : Math.round(s.distance_m) + ' m';
 
+      // Oude kaart netjes opruimen vóór de herbouw (voorkomt lekkende listeners)
+      if (map) { map.remove(); map = null; }
+
       container.innerHTML = `
         <div class="breadcrumb">
           <a href="dashboard.html">Mijn data</a><span>·</span>
