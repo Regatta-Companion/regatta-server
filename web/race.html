@@ -505,6 +505,10 @@
     const urlParams = new URLSearchParams(window.location.search);
     // ?track= toont een losse track; ?id= blijft werken voor oude links
     const trackId = urlParams.get('track') || urlParams.get('id');
+    // Losse tracks hebben een eigen analysepagina; oude ?id=-links blijven zo werken
+    if (trackId) {
+      window.location.replace('sessie.html?track=' + encodeURIComponent(trackId));
+    }
     // ?race= is leidend; sessionStorage is fallback voor de nav-tabs zonder parameter
     const raceId = urlParams.get('race') || sessionStorage.getItem('raceId');
     if (raceId) sessionStorage.setItem('raceId', raceId);
@@ -592,15 +596,9 @@
       window.location.href = 'race.html?race=' + newRaceId;
     }
 
-    // ── Load: individual track (via ?id=) or race (via sessionStorage) ──
+    // ── Load: race (via ?race= of sessionStorage) ──
     async function loadRace() {
       const container = document.getElementById('race-content');
-
-      // Check for individual track first
-      if (trackId) {
-        await loadSingleTrack(trackId, container);
-        return;
-      }
 
       if (!raceId) {
         container.innerHTML = '<div class="error-state"><p>Geen race geselecteerd. <a href="dashboard.html">Ga terug</a>.</p></div>';
@@ -726,6 +724,9 @@
                 <div class="boat-name">${escHtml(boatName)}</div>
                 <div class="boat-meta">${escHtml(subInfo || '')}</div>
               </div>
+              <button class="btn-dl" style="padding:3px 7px;font-size:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--muted);cursor:pointer"
+                onclick="event.stopPropagation();window.location.href='sessie.html?track=${t.id}&race=' + encodeURIComponent(raceId)"
+                title="Sessie-analyse">📈</button>
               <div class="boat-stats">
                 <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
                 <div class="boat-s"><div class="v">${t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) : '—'} kn</div><div class="l">max</div></div>
@@ -748,6 +749,9 @@
               <div class="boat-name">${escHtml(boatName)}</div>
               <div class="boat-meta">${escHtml(subInfo || '')}</div>
             </div>
+            <button class="btn-dl" style="padding:3px 7px;font-size:11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--muted);cursor:pointer"
+              onclick="event.stopPropagation();window.location.href='sessie.html?track=${t.id}&race=' + encodeURIComponent(raceId)"
+              title="Sessie-analyse">📈</button>
             <div class="boat-stats">
               <div class="boat-s"><div class="v">${t.avg_speed_knots != null ? t.avg_speed_knots.toFixed(1) : '—'} kn</div><div class="l">gem</div></div>
               <div class="boat-s"><div class="v">${t.max_speed_knots != null ? t.max_speed_knots.toFixed(1) : '—'} kn</div><div class="l">max</div></div>
@@ -1353,100 +1357,6 @@
       animFrameId=requestAnimationFrame(animLoop);
     }
     function togglePlayback() { if(playing) stopPlayback(); else startPlayback(); }
-
-    // ── Load individual track ────────────────────────────────────────────
-    async function loadSingleTrack(tid, container) {
-      try {
-        const track = await apiGet('/tracks/' + tid);
-        if (!track || track.error) throw new Error(track?.error || 'Niet gevonden');
-
-        document.getElementById('breadcrumb-race').textContent = track.name || 'Track #' + tid;
-
-        // Fetch GPX coordinates
-        let coords = [];
-        try {
-          const gpxRes = await fetch(API + '/tracks/' + tid + '/gpx', {
-            headers: { 'Authorization': 'Bearer ' + getToken() },
-          });
-          if (gpxRes.ok) {
-            const xml = await gpxRes.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(xml, 'text/xml');
-            const pts = doc.querySelectorAll('trkpt');
-            pts.forEach(pt => {
-              const lat = parseFloat(pt.getAttribute('lat'));
-              const lon = parseFloat(pt.getAttribute('lon'));
-              if (!isNaN(lat) && !isNaN(lon)) coords.push([lat, lon]);
-            });
-          }
-        } catch (_) {}
-
-        const displayCoords = coords;
-
-        const kn = n => n != null ? n.toFixed(1) + ' kn' : '—';
-        const dur = track.duration_seconds ? fmtDuration(track.duration_seconds) : '—';
-        const dist = track.distance_meters != null ? (track.distance_meters >= 1000 ? (track.distance_meters/1000).toFixed(1) + ' km' : Math.round(track.distance_meters) + ' m') : '—';
-
-        container.innerHTML = `
-          <div class="breadcrumb">
-            <a href="dashboard.html">Dashboard</a>
-            <span>·</span>
-            <span>${escHtml(track.name || 'Track #' + tid)}</span>
-          </div>
-
-          <div class="race-header">
-            <div>
-              <h2>${escHtml(track.name || 'Track #' + tid)}</h2>
-              <div class="race-meta">${fmtDate(track.recorded_at)} · ${track.point_count || coords.length} punten</div>
-            </div>
-          </div>
-
-          <div class="map-section">
-            <div class="map-container">
-              <div id="map"></div>
-            </div>
-            <div class="map-sidebar">
-              <div class="info-panel">
-                <h4>Track details</h4>
-                <div class="info-grid">
-                  <div class="info-cell"><div class="val">${kn(track.max_speed_knots)}</div><div class="lbl">Max snelheid</div></div>
-                  <div class="info-cell"><div class="val">${kn(track.avg_speed_knots)}</div><div class="lbl">Gemiddeld</div></div>
-                  <div class="info-cell"><div class="val">${dist}</div><div class="lbl">Afstand</div></div>
-                  <div class="info-cell"><div class="val">${dur}</div><div class="lbl">Duur</div></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-
-        // We coords but need to wrap as pseudo-track for the map functions
-        tracks = [Object.assign({}, track, { _coords: displayCoords })];
-        initMap();
-        ghostLine = L.polyline(displayCoords, {
-          color: BOAT_COLORS[0],
-          weight: 3,
-          opacity: 0.9,
-        }).addTo(map);
-        // ghost already set
-        map.fitBounds(ghostLine.getBounds().pad(0.1));
-
-        if (displayCoords.length > 0) {
-          const end = displayCoords[displayCoords.length - 1];
-          const marker = L.circleMarker(end, {
-            radius: 6,
-            color: BOAT_COLORS[0],
-            fillColor: '#fff',
-            fillOpacity: 1,
-            weight: 2,
-          }).addTo(map);
-          marker.bindTooltip('Finish', { direction: 'top' });
-        }
-
-      } catch (e) {
-        console.error('loadSingleTrack error:', e);
-        container.innerHTML = '<div class="error-state"><p>Kon track niet laden. <a href="dashboard.html">Ga terug</a>.</p></div>';
-      }
-    }
 
     loadRace();
 
