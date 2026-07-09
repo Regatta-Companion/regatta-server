@@ -82,7 +82,9 @@
         }
 
         const savedWind = localStorage.getItem(windKey());
-        const override = savedWind != null && savedWind !== '' ? parseInt(savedWind, 10) : null;
+        const parsedWind = savedWind != null && savedWind !== '' ? parseInt(savedWind, 10) : NaN;
+        // Corrupte/vreemde opgeslagen waarde mag de analyse niet met NaN vergiftigen
+        const override = Number.isFinite(parsedWind) ? parsedWind : null;
         session = SessionAnalysis.analyzeSession(rawPoints, { windOverrideDeg: override });
         renderAll();
       } catch (e) {

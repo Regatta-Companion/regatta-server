@@ -41,7 +41,7 @@ Eén DOM-vrij bestand met pure functies (input: puntenlijst
 2. **Windschatting** — histogram van koersen, gewogen naar tijd, alleen
    segmenten met snelheid > 2 kn (sluit dobberen/drijven uit). Kruisrakken
    vormen twee dominante koerspieken 70–110° uit elkaar; wind = bissectrice
-   + 180°. Levert `{direction_deg, confidence}`; geen kruispatroon → lage
+   van de twee aan-de-windse koersen. Levert `{direction_deg, confidence}`; geen kruispatroon → lage
    confidence, wind onbekend.
 3. **Handmatige correctie** — kompasschuif op de pagina; override wordt per
    track bewaard in `localStorage` en herrekent stap 4–6 direct.

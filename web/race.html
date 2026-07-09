@@ -1358,7 +1358,7 @@
     }
     function togglePlayback() { if(playing) stopPlayback(); else startPlayback(); }
 
-    loadRace();
+    if (!trackId) loadRace();
 
     window.addEventListener('resize', () => {
       if (tracks.length) drawSpeedChart(activeTrackIdx);
