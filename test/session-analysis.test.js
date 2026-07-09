@@ -152,3 +152,30 @@ test('detectManeuvers: zonder wind geen manoeuvres', () => {
   const legs = SA.segmentLegs(points, null);
   assert.deepStrictEqual(SA.detectManeuvers(points, legs, null), []);
 });
+
+test('detectManeuvers: snelheidsverlies en hersteltijd worden gemeten', () => {
+  // Dip naar 2 kn direct na de bocht; herstel naar 5 kn na 15 s
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 315, seconds: 120, speed_kn: 5 },
+    { heading_deg: 45, seconds: 15, speed_kn: 2 },
+    { heading_deg: 45, seconds: 105, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, 0);
+  const mans = SA.detectManeuvers(points, legs, 0);
+  assert.strictEqual(mans.length, 1);
+  assert.strictEqual(mans[0].type, 'overstag');
+  assert.ok(mans[0].speed_loss_kn >= 2.5 && mans[0].speed_loss_kn <= 3.5,
+    `verwacht verlies ~3 kn, kreeg ${mans[0].speed_loss_kn}`);
+  assert.ok(mans[0].recovery_s >= 10 && mans[0].recovery_s <= 30,
+    `verwacht herstel ~15 s, kreeg ${mans[0].recovery_s}`);
+});
+
+test('detectManeuvers: bocht die de wind niet kruist is geen manoeuvre', () => {
+  // Wind uit 0; koers 100 → 170 is 70° draai die noch 0 noch 180 kruist
+  const points = SA.computeHeadings(makeTrack([
+    { heading_deg: 100, seconds: 120, speed_kn: 5 },
+    { heading_deg: 170, seconds: 120, speed_kn: 5 },
+  ]));
+  const legs = SA.segmentLegs(points, 0);
+  assert.deepStrictEqual(SA.detectManeuvers(points, legs, 0), []);
+});
