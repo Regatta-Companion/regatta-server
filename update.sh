@@ -9,6 +9,9 @@ cd "$INSTALL_DIR"
 echo "==> Regatta Server updaten in $INSTALL_DIR"
 
 # ── 1. Nieuwste code ophalen ──────────────────────────────────────────────────
+# Stap 2 schrijft de versie in package.json; die lokale wijziging moet weg
+# vóór de pull, anders weigert git zodra een update package.json raakt.
+git checkout -- package.json 2>/dev/null || true
 echo "--> git pull..."
 git pull origin master --tags
 
