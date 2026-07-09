@@ -155,6 +155,8 @@
         <div id="playback-section"></div>
         <div id="report-section"></div>
       `;
+      boatMarker = null; trailLine = null;
+      if (animId) { cancelAnimationFrame(animId); animId = null; playing = false; }
       renderMap();
       renderWindPanel();
       if (typeof renderPlayback === 'function') renderPlayback();   // Task 7
@@ -234,6 +236,159 @@
         document.getElementById('wind-value').textContent = slider.value + '°';
       });
       document.getElementById('wind-reset').addEventListener('click', () => setWindOverride(null));
+    }
+
+    // ── Playback ──────────────────────────────────────────────────────────
+    let playing = false, playT = 0, playSpeedX = 4, animId = null, lastTs = null;
+    let boatMarker = null, trailLine = null;
+
+    function sessionTimes() {
+      const t0 = new Date(session.points[0].time).getTime();
+      const t1 = new Date(session.points[session.points.length - 1].time).getTime();
+      return { t0, dur: (t1 - t0) / 1000 };
+    }
+
+    function idxAtTime(sec) {
+      const { t0 } = sessionTimes();
+      const target = t0 + sec * 1000;
+      let lo = 0, hi = session.points.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        (new Date(session.points[mid].time).getTime() < target) ? lo = mid + 1 : hi = mid;
+      }
+      return lo;
+    }
+
+    function renderPlayback() {
+      const sec = document.getElementById('playback-section');
+      if (!hasTimes()) {
+        sec.innerHTML = '<div class="panel"><p class="muted">Deze track heeft geen tijdstempels — playback en snelheidsgrafiek zijn niet beschikbaar.</p></div>';
+        return;
+      }
+      playing = false; playT = 0;
+      sec.innerHTML = `
+        <div class="panel">
+          <h4>Playback</h4>
+          <div class="wind-row">
+            <button class="btn btn-secondary btn-sm" id="pb-play">▶</button>
+            <span id="pb-time" style="font-family:var(--font-mono);min-width:52px">00:00</span>
+            <input type="range" id="pb-slider" min="0" max="1000" value="0" />
+            ${[1,4,10,30].map(x => `<button class="btn btn-secondary btn-sm pb-speed${x===playSpeedX?' active':''}" data-x="${x}">${x}×</button>`).join('')}
+          </div>
+          <canvas id="speed-chart" width="1000" height="140" style="width:100%;margin-top:12px"></canvas>
+        </div>`;
+
+      document.getElementById('pb-play').addEventListener('click', togglePlay);
+      document.getElementById('pb-slider').addEventListener('input', (e) => {
+        const { dur } = sessionTimes();
+        playT = (e.target.value / 1000) * dur;
+        updateBoat();
+      });
+      document.querySelectorAll('.pb-speed').forEach(b => b.addEventListener('click', () => {
+        playSpeedX = parseInt(b.dataset.x, 10);
+        document.querySelectorAll('.pb-speed').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      }));
+      document.getElementById('speed-chart').addEventListener('click', (e) => {
+        const rect = e.target.getBoundingClientRect();
+        const { dur } = sessionTimes();
+        playT = ((e.clientX - rect.left) / rect.width) * dur;
+        updateBoat();
+      });
+      drawSpeedChart();
+      updateBoat();
+    }
+
+    function seekToIdx(idx) {
+      if (!hasTimes()) return;
+      const { t0 } = sessionTimes();
+      playT = (new Date(session.points[idx].time).getTime() - t0) / 1000;
+      playing = false;
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      const btn = document.getElementById('pb-play');
+      if (btn) btn.textContent = '▶';
+      updateBoat();
+    }
+
+    function togglePlay() {
+      playing = !playing;
+      document.getElementById('pb-play').textContent = playing ? '⏸' : '▶';
+      if (playing) { lastTs = null; animId = requestAnimationFrame(tick); }
+      else if (animId) { cancelAnimationFrame(animId); animId = null; }
+    }
+
+    function tick(ts) {
+      if (!playing) return;
+      if (lastTs != null) {
+        playT += ((ts - lastTs) / 1000) * playSpeedX;
+        const { dur } = sessionTimes();
+        if (playT >= dur) { playT = dur; playing = false; document.getElementById('pb-play').textContent = '▶'; }
+      }
+      lastTs = ts;
+      updateBoat();
+      if (playing) animId = requestAnimationFrame(tick);
+    }
+
+    function updateBoat() {
+      const { dur } = sessionTimes();
+      const idx = idxAtTime(playT);
+      const pt = session.points[idx];
+
+      if (!boatMarker) {
+        boatMarker = L.circleMarker([pt.lat, pt.lon], {
+          radius: 7, color: '#0f172a', fillColor: '#fff', fillOpacity: 1, weight: 2,
+        }).addTo(map);
+      } else boatMarker.setLatLng([pt.lat, pt.lon]);
+
+      const trail = session.points.slice(0, idx + 1).map(p => [p.lat, p.lon]);
+      if (!trailLine) trailLine = L.polyline(trail, { color: '#0f172a', weight: 2, opacity: 0.6 }).addTo(map);
+      else trailLine.setLatLngs(trail);
+
+      const slider = document.getElementById('pb-slider');
+      if (slider) slider.value = Math.round((playT / dur) * 1000);
+      const disp = document.getElementById('pb-time');
+      if (disp) disp.textContent = fmtDuration(Math.round(playT));
+      drawSpeedChart(idx);
+    }
+
+    function drawSpeedChart(cursorIdx) {
+      const canvas = document.getElementById('speed-chart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      const pts = session.points;
+      const speeds = pts.map(p => p.speed_kn || 0);
+      const maxS = Math.max(...speeds, 1);
+      const { t0, dur } = sessionTimes();
+      const x = (p) => ((new Date(p.time).getTime() - t0) / 1000 / dur) * W;
+      const y = (s) => H - 8 - (s / maxS) * (H - 20);
+
+      ctx.beginPath();
+      let started = false;
+      for (const p of pts) {
+        if (!p.time || p.speed_kn == null) continue;
+        started ? ctx.lineTo(x(p), y(p.speed_kn)) : (ctx.moveTo(x(p), y(p.speed_kn)), started = true);
+      }
+      ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 1.5; ctx.stroke();
+
+      // Manoeuvres als stippen
+      for (const m of session.maneuvers) {
+        const p = pts[m.idx];
+        if (!p.time) continue;
+        ctx.beginPath();
+        ctx.arc(x(p), y(p.speed_kn || 0), 4, 0, Math.PI * 2);
+        ctx.fillStyle = m.type === 'overstag' ? '#d97706' : '#dc2626';
+        ctx.fill();
+      }
+
+      // Cursor
+      if (cursorIdx != null && pts[cursorIdx] && pts[cursorIdx].time) {
+        ctx.beginPath();
+        ctx.moveTo(x(pts[cursorIdx]), 0); ctx.lineTo(x(pts[cursorIdx]), H);
+        ctx.strokeStyle = 'rgba(100,116,139,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+      }
     }
 
     loadSession();
