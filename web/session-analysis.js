@@ -401,5 +401,38 @@
     return speedKn * Math.cos(toRad(angleDiff(brg, headingDeg)));
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession, courseFromMarks, computeVMG };
+  // Voortgang in meters langs het parcours + boeirondingen.
+  // Ronding = binnen ROUNDING_RADIUS_M van de eerstvolgende boei (alleen in
+  // parcoursvolgorde). Voortgang is monotoon niet-dalend geklemd.
+  var ROUNDING_RADIUS_M = 60;
+
+  function computeProgress(points, course) {
+    const progress = [];
+    const roundings = [];
+    let next = 0;
+    let clamped = null;
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      // Meerdere boeien in één stap kunnen ronden (dicht bij elkaar / GPS-gat)
+      while (next < course.marks.length &&
+             haversineM(p.lat, p.lon, course.marks[next].lat, course.marks[next].lon) <= ROUNDING_RADIUS_M) {
+        roundings.push({ markIdx: next, pointIdx: i, time: p.time || null });
+        next++;
+      }
+
+      let raw;
+      if (next >= course.marks.length) {
+        raw = course.total_distance_m;
+      } else {
+        raw = course.cum_distance_m[next] -
+              haversineM(p.lat, p.lon, course.marks[next].lat, course.marks[next].lon);
+      }
+      clamped = clamped == null ? raw : Math.max(clamped, raw);
+      progress.push(clamped);
+    }
+    return { progress_m: progress, roundings };
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession, courseFromMarks, computeVMG, computeProgress };
 });
