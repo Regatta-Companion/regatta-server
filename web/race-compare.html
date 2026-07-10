@@ -519,16 +519,23 @@
           </div>`;
       }
 
+      const capNote = tracks.length > 20
+        ? `<p style="font-size:12px;color:var(--muted);margin-bottom:8px">Deze klasse heeft ${tracks.length} boten; de eerste 20 zijn geselecteerd.</p>` : '';
+
       const content = document.getElementById('compare-content');
       content.innerHTML = `
         ${classSwitcher}
+        ${capNote}
         <div class="track-selector" id="track-selector">
           ${tracks.map((t, i) => {
             const selected = selectedBoatIdx.includes(i);
             return `
               <div class="track-chip ${selected ? 'selected' : ''}" data-idx="${i}" onclick="toggleBoat(${i})">
                 <span class="chip-dot" style="background:${BOAT_COLORS[i % BOAT_COLORS.length]}"></span>
-                ${escHtml(t.name || t.filename || 'Boot ' + (i+1))}
+                ${escHtml(t.name || t.filename || 'Boot ' + (i+1))}${(() => {
+                  const cd = compareData.find(d => d.id === t.id);
+                  return cd && (!cd.points.length || !cd.points[0].time) ? ' ⚠' : '';
+                })()}
               </div>
             `;
           }).join('')}
@@ -572,6 +579,14 @@
           <div class="chart-header"><h4>Snelheidsvergelijking (knopen)</h4></div>
           <canvas id="compare-chart"></canvas>
         </div>
+        <div class="chart-section" id="gap-section" style="display:none">
+          <div class="chart-header"><h4>Achterstand op de leider (meters)</h4></div>
+          <canvas id="gap-chart"></canvas>
+        </div>
+        <div class="chart-section" id="roundings-section" style="display:none">
+          <div class="chart-header"><h4>Boeirondingen</h4></div>
+          <div id="roundings-table" style="overflow-x:auto"></div>
+        </div>
       `;
 
       renderCompareCards();
@@ -579,6 +594,8 @@
       drawAllTracks();
       drawCompareChart();
       renderLeaderboard();
+      drawGapChart();
+      renderRoundingsTable();
       updateTimelineUI();
 
       document.getElementById('time-total').textContent = fmtDuration(totalDuration);
@@ -1077,6 +1094,7 @@
       updateTimelineUI();
       drawCompareChart(); // update cursor
       renderLeaderboard();
+      drawGapChart();
 
       animFrameId = requestAnimationFrame(animLoop);
     }
@@ -1089,6 +1107,7 @@
       updateTimelineUI();
       drawCompareChart();
       renderLeaderboard();
+      drawGapChart();
     }
 
     function setSpeed(s) {
@@ -1228,6 +1247,132 @@
       ctx.setLineDash([]);
     }
 
+    function drawGapChart() {
+      const section = document.getElementById('gap-section');
+      const canvas = document.getElementById('gap-chart');
+      if (!canvas || !section) return;
+      if (!gapData) { section.style.display = 'none'; return; }
+      section.style.display = '';
+
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const w = rect.width - 40, h = 220;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.scale(dpr, dpr);
+
+      const padding = { top: 16, bottom: 28, left: 52, right: 16 };
+      const chartW = w - padding.left - padding.right;
+      const chartH = h - padding.top - padding.bottom;
+
+      let maxGap = 50;
+      for (const b of gapData.boats) for (const g of b.gap_m) if (g > maxGap) maxGap = g;
+      const niceMax = Math.ceil(maxGap / 50) * 50;
+
+      // 0 (leider) bovenaan; achterstand groeit omlaag
+      const xT = ts => padding.left + ((ts - raceStartTs) / 1000 / totalDuration) * chartW;
+      const yG = g => padding.top + (g / niceMax) * chartH;
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(71,85,105,0.2)'; ctx.lineWidth = 1;
+      ctx.fillStyle = 'rgba(71,85,105,0.5)';
+      ctx.font = '10px "JetBrains Mono", monospace'; ctx.textAlign = 'right';
+      const ySteps = 4;
+      for (let k = 0; k <= ySteps; k++) {
+        const g = (k / ySteps) * niceMax;
+        const y = yG(g);
+        ctx.beginPath(); ctx.moveTo(padding.left, y); ctx.lineTo(w - padding.right, y); ctx.stroke();
+        ctx.fillText(Math.round(g) + ' m', padding.left - 6, y + 3);
+      }
+
+      // Rondingstreepjes: eerste ronder per boei (verticale stippellijn + nummer)
+      if (course) {
+        ctx.textAlign = 'center';
+        course.marks.forEach((m, mi) => {
+          let firstTs = null;
+          for (const cd of compareData) {
+            const r = cd._progress?.roundings.find(r => r.markIdx === mi && r.time);
+            if (r) {
+              const ts = new Date(r.time).getTime();
+              if (firstTs == null || ts < firstTs) firstTs = ts;
+            }
+          }
+          if (firstTs != null) {
+            const x = xT(firstTs);
+            ctx.beginPath(); ctx.setLineDash([3, 4]);
+            ctx.moveTo(x, padding.top); ctx.lineTo(x, padding.top + chartH);
+            ctx.strokeStyle = 'rgba(245,158,11,0.7)'; ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(245,158,11,0.9)';
+            ctx.fillText(String(mi + 1), x, padding.top - 4);
+            ctx.fillStyle = 'rgba(71,85,105,0.5)';
+          }
+        });
+      }
+
+      // Gap-lijnen per boot
+      gapData.boats.forEach(gb => {
+        const trackIdx = tracks.findIndex(t => t.id === gb.id);
+        ctx.beginPath();
+        gapData.times.forEach((ts, si) => {
+          const x = xT(ts), y = yG(gb.gap_m[si]);
+          si === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = BOAT_COLORS[trackIdx % BOAT_COLORS.length];
+        ctx.lineWidth = 2; ctx.stroke();
+      });
+
+      // Cursor
+      const cx = padding.left + (currentTime / totalDuration) * chartW;
+      ctx.beginPath(); ctx.setLineDash([4, 4]);
+      ctx.moveTo(cx, padding.top); ctx.lineTo(cx, padding.top + chartH);
+      ctx.strokeStyle = 'rgba(71,85,105,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function renderRoundingsTable() {
+      const section = document.getElementById('roundings-section');
+      const holder = document.getElementById('roundings-table');
+      if (!section || !holder) return;
+      if (!course || !gapData) { section.style.display = 'none'; return; }
+
+      // Per boei: boten in rondingsvolgorde met kloktijd en gap-bij-ronding
+      const rows = course.marks.map((m, mi) => {
+        const passes = [];
+        for (const cd of compareData) {
+          const r = cd._progress?.roundings.find(r => r.markIdx === mi && r.time);
+          const trackIdx = tracks.findIndex(t => t.id === cd.id);
+          if (r) passes.push({ cd, trackIdx, ts: new Date(r.time).getTime() });
+        }
+        passes.sort((a, b) => a.ts - b.ts);
+        return { m, mi, passes };
+      }).filter(r => r.passes.length > 0);
+
+      if (!rows.length) { section.style.display = 'none'; return; }
+      section.style.display = '';
+
+      holder.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+          <tbody>
+            ${rows.map(({ m, mi, passes }) => `
+              <tr style="border-top:1px solid var(--border)">
+                <td style="padding:6px 8px;font-weight:600">${mi + 1}. ${escHtml(m.name || 'Boei ' + (mi + 1))}</td>
+                ${passes.map((p, pi) => {
+                  const relS = (p.ts - raceStartTs) / 1000;
+                  const gapAtRounding = pi === 0 ? 'eerste'
+                    : '+' + Math.round((p.ts - passes[0].ts) / 1000) + ' s';
+                  const name = tracks[p.trackIdx]?.boat_name || tracks[p.trackIdx]?.name || 'Boot';
+                  const color = BOAT_COLORS[p.trackIdx % BOAT_COLORS.length];
+                  return `<td style="padding:6px 8px;cursor:pointer" onclick="seekTimeline(${Math.round((relS / totalDuration) * 1000)})">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px"></span>
+                    ${escHtml(name)} <span style="color:var(--muted);font-family:var(--font-mono)">${fmtDuration(relS)} · ${gapAtRounding}</span>
+                  </td>`;
+                }).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
     /* ────────────────────────────────────────────────────────────────
        BOAT TOGGLE
        ──────────────────────────────────────────────────────────────── */
@@ -1268,6 +1413,14 @@
     window.addEventListener('resize', () => {
       if (map) map.invalidateSize();
       if (compareData.length) drawCompareChart();
+      drawGapChart();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (e.target.id !== 'gap-chart') return;
+      const rect = e.target.getBoundingClientRect();
+      const frac = (e.clientX - rect.left - 52) / (rect.width - 52 - 16);
+      seekTimeline(Math.max(0, Math.min(1, frac)) * 1000);
     });
 
     // ── Fullscreen overlay ──────────────────────────────────────────────────
