@@ -319,6 +319,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="script.js"></script>
+  <script src="session-analysis.js"></script>
   <script>
     requireAuth();
     checkAdmin().then(() => renderHeader('compare'));
@@ -340,6 +341,11 @@
     let fadeSegments = [];     // tail gradient segments per boat
     let boatMarkers = [];        // Leaflet circle markers
     let currentClass = null;
+    let raceStartTs = null;   // gedeelde klok: epoch ms van de vroegste track
+    let marks = [];           // ruwe boeien van GET /races/:id/marks
+    let course = null;        // courseFromMarks-resultaat of null
+    let gapData = null;       // gapSeries-resultaat of null
+    let markLayers = [];      // Leaflet-lagen van boeien + parcourslijn
 
     // Playback state
     let playing = false;
@@ -386,7 +392,8 @@
         });
       }
       if (tracks.length < 2) return false;
-      selectedBoatIdx = [0, Math.min(1, tracks.length - 1)];
+      // Standaard de hele klasse (tot 20 boten)
+      selectedBoatIdx = tracks.slice(0, 20).map((_, i) => i);
       return true;
     }
 
@@ -420,6 +427,9 @@
       try {
         const raceTracks = await apiGet('/races/' + raceId + '/tracks') || [];
         allTracks = Array.isArray(raceTracks) ? raceTracks : [];
+
+        marks = await apiGet('/races/' + raceId + '/marks') || [];
+        course = SessionAnalysis.courseFromMarks(marks);
 
         currentClass = resolveDefaultClass(allTracks);
 
@@ -469,6 +479,22 @@
       }
       totalDuration = (maxT - minT) / 1000;
       if (totalDuration <= 0) totalDuration = 60;
+
+      raceStartTs = isFinite(minT) ? minT : null;
+
+      // Parcoursvoortgang + gap-tijdreeks (alleen met parcours en tijden)
+      gapData = null;
+      if (course) {
+        for (const cd of compareData) {
+          cd._progress = (cd.points.length >= 2 && cd.points[0].time)
+            ? SessionAnalysis.computeProgress(cd.points, course) : null;
+        }
+        // Boten zonder tijden doen niet mee aan de gap-reeks
+        const boats = compareData
+          .filter(cd => cd._progress)
+          .map(cd => ({ id: cd.id, points: cd.points, progress_m: cd._progress.progress_m }));
+        if (boats.length >= 2) gapData = SessionAnalysis.gapSeries(boats, 5);
+      }
 
       // Reset playback
       stopPlayback();
@@ -538,6 +564,8 @@
           <div id="compare-map"></div>
         </div>
 
+        <div class="chart-section" id="leaderboard-section"></div>
+
         <div class="compare-grid" id="compare-cards"></div>
 
         <div class="chart-section">
@@ -550,6 +578,7 @@
       updateLegend();
       drawAllTracks();
       drawCompareChart();
+      renderLeaderboard();
       updateTimelineUI();
 
       document.getElementById('time-total').textContent = fmtDuration(totalDuration);
@@ -617,6 +646,95 @@
       }).join('');
     }
 
+    // Sample-index in gapData voor een playback-tijdstip
+    function sampleIdxAt(relTime) {
+      if (!gapData || raceStartTs == null) return -1;
+      const ts = raceStartTs + relTime * 1000;
+      const idx = Math.round((ts - gapData.start_ts) / (gapData.step_s * 1000));
+      return Math.max(0, Math.min(gapData.times.length - 1, idx));
+    }
+
+    // Volgende boei van een boot op een absoluut tijdstip (uit de rondingen)
+    function nextMarkIdxAt(cd, ts) {
+      if (!cd._progress || !course) return null;
+      let n = 0;
+      for (const r of cd._progress.roundings) {
+        if (r.time && new Date(r.time).getTime() <= ts) n = r.markIdx + 1;
+      }
+      return n < course.marks.length ? n : null;
+    }
+
+    function renderLeaderboard() {
+      const sec = document.getElementById('leaderboard-section');
+      if (!sec) return;
+
+      if (!course) {
+        sec.innerHTML = `<div class="chart-header"><h4>Wedstrijdverloop</h4></div>
+          <p style="font-size:13px;color:var(--muted);padding:8px 0">Geen parcours ingetekend — vraag de wedstrijdleiding boeien toe te voegen via het beheerpaneel.</p>`;
+        return;
+      }
+      if (!gapData) {
+        sec.innerHTML = `<div class="chart-header"><h4>Wedstrijdverloop</h4></div>
+          <p style="font-size:13px;color:var(--muted);padding:8px 0">Te weinig boten met tijdstempels voor een ranglijst.</p>`;
+        return;
+      }
+
+      const s = sampleIdxAt(currentTime);
+      const ts = raceStartTs + currentTime * 1000;
+
+      // Rijen opbouwen: per gapData-boot de bijbehorende track + livewaarden
+      const rows = gapData.boats.map((gb, i) => {
+        const cd = compareData.find(d => d.id === gb.id);
+        const trackIdx = tracks.findIndex(t => t.id === gb.id);
+        const pos = cd ? interpolatePosition(cd, currentTime) : null;
+        const nm = cd ? nextMarkIdxAt(cd, ts) : null;
+        let vmg = null;
+        if (pos && nm != null) {
+          vmg = SessionAnalysis.computeVMG(pos.spd, pos.heading, pos.lat, pos.lng,
+            course.marks[nm].lat, course.marks[nm].lon);
+        }
+        return {
+          id: gb.id, trackIdx,
+          name: tracks[trackIdx]?.boat_name || tracks[trackIdx]?.name || 'Boot',
+          color: BOAT_COLORS[trackIdx % BOAT_COLORS.length],
+          gap: gb.gap_m[s], progress: gb.progress_m[s],
+          spd: pos ? pos.spd : null, vmg,
+        };
+      }).sort((a, b) => a.gap - b.gap);
+
+      sec.innerHTML = `
+        <div class="chart-header"><h4>Live ranglijst</h4></div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">
+            <th style="text-align:left;padding:4px 8px">#</th>
+            <th style="text-align:left;padding:4px 8px">Boot</th>
+            <th style="text-align:right;padding:4px 8px">Achterstand</th>
+            <th style="text-align:right;padding:4px 8px">Snelheid</th>
+            <th style="text-align:right;padding:4px 8px">VMG</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map((r, i) => `
+              <tr style="border-top:1px solid var(--border);cursor:pointer" onclick="focusBoat(${r.trackIdx})">
+                <td style="padding:6px 8px;font-family:var(--font-mono);font-weight:700">${i + 1}</td>
+                <td style="padding:6px 8px"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${r.color};margin-right:6px"></span>${escHtml(r.name)}</td>
+                <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono)">${i === 0 ? 'leider' : '+' + r.gap + ' m'}</td>
+                <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono)">${r.spd != null ? r.spd.toFixed(1) + ' kn' : '—'}</td>
+                <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono)">${r.vmg != null ? r.vmg.toFixed(1) + ' kn' : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    // Boot uitlichten vanaf een ranglijst-rij
+    function focusBoat(trackIdx) {
+      const cd = compareData.find(d => d.id === tracks[trackIdx]?.id);
+      if (!cd || !map) return;
+      const pos = interpolatePosition(cd, currentTime);
+      if (pos) map.panTo([pos.lat, pos.lng]);
+      const mi = selectedBoatIdx.indexOf(trackIdx);
+      if (mi >= 0 && boatMarkers[mi]) boatMarkers[mi].openTooltip();
+    }
+
     /* ────────────────────────────────────────────────────────────────
        MAP
        ──────────────────────────────────────────────────────────────── */
@@ -646,6 +764,7 @@
     function drawAllTracks() {
       if (!map) return;
       clearAllLayers();
+      drawCourseMarks();
 
       const allBounds = [];
 
@@ -693,6 +812,29 @@
       trailLines = [];
       fadeSegments = [];
       boatMarkers = [];
+
+      markLayers.forEach(l => { try { map.removeLayer(l); } catch (_) {} });
+      markLayers = [];
+    }
+
+    function drawCourseMarks() {
+      if (!map || !course) return;
+      // Gestippelde parcourslijn
+      const line = L.polyline(course.marks.map(m => [m.lat, m.lon]), {
+        color: '#64748b', weight: 1.5, opacity: 0.6, dashArray: '6 6',
+      }).addTo(map);
+      markLayers.push(line);
+      // Genummerde boeien
+      course.marks.forEach((m, i) => {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="width:18px;height:18px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">${i + 1}</div>`,
+          iconSize: [18, 18], iconAnchor: [9, 9],
+        });
+        const mk = L.marker([m.lat, m.lon], { icon, zIndexOffset: -100 }).addTo(map);
+        mk.bindTooltip(escHtml(m.name || 'Boei ' + (i + 1)));
+        markLayers.push(mk);
+      });
     }
 
     /* ────────────────────────────────────────────────────────────────
@@ -770,7 +912,7 @@
         if (!cd || cd.points.length < 2) return;
 
         const color = BOAT_COLORS[idx % BOAT_COLORS.length];
-        const startTs = new Date(cd.points[0].time).getTime();
+        const startTs = raceStartTs != null ? raceStartTs : new Date(cd.points[0].time).getTime();
         const TAIL_SEC = 18;
 
         // Build traveled points and tail points
@@ -857,17 +999,15 @@
     function interpolatePosition(cd, relTime) {
       if (!cd.points || cd.points.length < 2) return null;
 
-      const startTs = new Date(cd.points[0].time).getTime();
-      const endTs = new Date(cd.points[cd.points.length - 1].time).getTime();
-      const trackDuration = (endTs - startTs) / 1000;
-
+      const startTs = raceStartTs != null ? raceStartTs : new Date(cd.points[0].time).getTime();
       const targetTs = startTs + relTime * 1000;
 
-      // Before first point or after last point
-      if (relTime <= 0) {
+      const firstTs = new Date(cd.points[0].time).getTime();
+      const lastTs = new Date(cd.points[cd.points.length - 1].time).getTime();
+      if (targetTs <= firstTs) {
         return { lat: cd.points[0].lat, lng: cd.points[0].lon, heading: cd.points[0]._hdg || null, spd: cd.points[0].speed_kn || 0 };
       }
-      if (relTime >= trackDuration) {
+      if (targetTs >= lastTs) {
         const last = cd.points[cd.points.length - 1];
         return { lat: last.lat, lng: last.lon, heading: last._hdg || null, spd: last.speed_kn || 0 };
       }
@@ -936,6 +1076,7 @@
       updateTrails();
       updateTimelineUI();
       drawCompareChart(); // update cursor
+      renderLeaderboard();
 
       animFrameId = requestAnimationFrame(animLoop);
     }
@@ -947,6 +1088,7 @@
       updateTrails();
       updateTimelineUI();
       drawCompareChart();
+      renderLeaderboard();
     }
 
     function setSpeed(s) {
@@ -1003,7 +1145,7 @@
         if (!cd || cd.points.length < 2) continue;
 
         // Map points to { timeOffset, speed_kn }
-        const startTs = new Date(cd.points[0].time).getTime();
+        const startTs = raceStartTs != null ? raceStartTs : new Date(cd.points[0].time).getTime();
         const data = [];
         for (const pt of cd.points) {
           if (pt.speed_kn != null) {
@@ -1095,7 +1237,7 @@
         if (selectedBoatIdx.length <= 2) return;
         selectedBoatIdx = selectedBoatIdx.filter(i => i !== idx);
       } else {
-        if (selectedBoatIdx.length >= 4) return;
+        if (selectedBoatIdx.length >= 20) return;
         selectedBoatIdx.push(idx);
       }
 
@@ -1223,7 +1365,7 @@
           fsMarkers[i].marker.setLatLng([pos.lat, pos.lng]);
           // Update tooltip with live speed + heading
           const hdg = pos.heading != null ? Math.round(pos.heading) : 0;
-          const spd = pos.speed != null ? pos.speed.toFixed(1) : '0.0';
+          const spd = pos.spd != null ? pos.spd.toFixed(1) : '0.0';
           fsMarkers[i].marker.setTooltipContent(escHtml(fsMarkers[i].name) + '<br><span style="font-size:10px">' + spd + ' kn · ' + hdg + '°</span>');
           const trail = fsTrails[i];
           if (trail) {
@@ -1233,7 +1375,7 @@
         }
         const spdEl = document.getElementById(`fs-spd-${i}`);
         const hdgEl = document.getElementById(`fs-hdg-${i}`);
-        if (spdEl && pos) spdEl.textContent = pos.speed != null ? pos.speed.toFixed(1) : '—';
+        if (spdEl && pos) spdEl.textContent = pos.spd != null ? pos.spd.toFixed(1) : '—';
         if (hdgEl && pos) hdgEl.textContent = pos.heading != null ? Math.round(pos.heading) + '°' : '—';
       });
     }
