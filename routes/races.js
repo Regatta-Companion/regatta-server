@@ -291,7 +291,7 @@ function createRacesRouter(db, tracksDir) {
           points: finalPoints,
           start_time: points[0].time || null,
           end_time: points[points.length - 1].time || null,
-          point_count: points.length,
+          point_count: finalPoints.length,
           distance_m: Math.round(totalDist),
           max_speed_kn: Math.round(maxSpd * 10) / 10,
           avg_speed_kn: speedCount > 0 ? Math.round((sumSpd / speedCount) * 10) / 10 : 0,
