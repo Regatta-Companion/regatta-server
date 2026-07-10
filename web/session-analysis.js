@@ -371,5 +371,35 @@
     return { points, wind: { estimated, used_deg: usedDeg }, legs, maneuvers, report };
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession };
+  // ── Parcours-motor ─────────────────────────────────────────────────────
+
+  // Bouw een parcours uit race-boeien (vorm van GET /api/races/:id/marks).
+  // Minder dan 2 geldige boeien → null (geen parcours).
+  function courseFromMarks(rawMarks) {
+    const marks = (rawMarks || [])
+      .filter(m => m && typeof m.lat === 'number' && typeof m.lon === 'number' &&
+                   isFinite(m.lat) && isFinite(m.lon))
+      .slice()
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    if (marks.length < 2) return null;
+
+    const legs = [];
+    const cum = [0];
+    for (let i = 1; i < marks.length; i++) {
+      const d = haversineM(marks[i - 1].lat, marks[i - 1].lon, marks[i].lat, marks[i].lon);
+      legs.push({ fromIdx: i - 1, toIdx: i, distance_m: d });
+      cum.push(cum[i - 1] + d);
+    }
+    return { marks, legs, cum_distance_m: cum, total_distance_m: cum[cum.length - 1] };
+  }
+
+  // Velocity made good richting een doel: snelheid × cos(koers − peiling).
+  // Negatief wanneer de boot van het doel af vaart.
+  function computeVMG(speedKn, headingDeg, lat, lon, targetLat, targetLon) {
+    if (speedKn == null || headingDeg == null) return null;
+    const brg = bearing(lat, lon, targetLat, targetLon);
+    return speedKn * Math.cos(toRad(angleDiff(brg, headingDeg)));
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession, courseFromMarks, computeVMG };
 });
