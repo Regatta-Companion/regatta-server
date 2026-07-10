@@ -1450,9 +1450,9 @@
       seekTimeline(Math.max(0, Math.min(1, frac)) * 1000);
     });
 
-    // Event delegation: de ranglijst wordt elk animatieframe herbouwd, dus
-    // inline onclick-attributen op de rijen zouden nooit een klik ontvangen.
-    document.addEventListener('click', (e) => {
+    // Rijen worden tijdens playback herbouwd; pointerdown vuurt vóór de herbouw.
+    // 'click' zou niet afvuren als de rij tussen mousedown en mouseup is losgemaakt.
+    document.addEventListener('pointerdown', (e) => {
       const row = e.target.closest && e.target.closest('#leaderboard-section tr[data-track-idx]');
       if (row) focusBoat(parseInt(row.dataset.trackIdx, 10));
     });
