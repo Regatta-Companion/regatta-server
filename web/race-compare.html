@@ -354,6 +354,7 @@
     let playSpeed = 1;
     let animFrameId = null;
     let lastFrameTs = null;
+    let lastLeaderboardDraw = 0;   // throttelt renderLeaderboard() tijdens playback
 
     function getAvailableClasses(trackList) {
       const seen = new Set();
@@ -471,8 +472,10 @@
       for (const cd of compareData) {
         if (cd.points.length > 0) {
           computeSmoothedHeadings(cd.points, 2);
-          const t0 = new Date(cd.points[0].time).getTime();
-          const t1 = new Date(cd.points[cd.points.length - 1].time).getTime();
+          // Epoch ms per punt eenmalig cachen — voorkomt duizenden new Date()-parses per animatieframe
+          for (const pt of cd.points) pt._ts = pt.time ? new Date(pt.time).getTime() : null;
+          const t0 = cd.points[0]._ts;
+          const t1 = cd.points[cd.points.length - 1]._ts;
           if (t0 < minT) minT = t0;
           if (t1 > maxT) maxT = t1;
         }
@@ -682,6 +685,11 @@
     }
 
     function renderLeaderboard() {
+      // Tijdens playback niet elk frame herbouwen (kost DOM-werk en breekt
+      // eventuele in-flight kliks); bij stilstand (seek) altijd direct tekenen.
+      if (playing && performance.now() - lastLeaderboardDraw < 250) return;
+      lastLeaderboardDraw = performance.now();
+
       const sec = document.getElementById('leaderboard-section');
       if (!sec) return;
 
@@ -731,7 +739,7 @@
           </tr></thead>
           <tbody>
             ${rows.map((r, i) => `
-              <tr style="border-top:1px solid var(--border);cursor:pointer" onclick="focusBoat(${r.trackIdx})">
+              <tr style="border-top:1px solid var(--border);cursor:pointer" data-track-idx="${r.trackIdx}">
                 <td style="padding:6px 8px;font-family:var(--font-mono);font-weight:700">${i + 1}</td>
                 <td style="padding:6px 8px"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${r.color};margin-right:6px"></span>${escHtml(r.name)}</td>
                 <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono)">${i === 0 ? 'leider' : '+' + r.gap + ' m'}</td>
@@ -929,7 +937,7 @@
         if (!cd || cd.points.length < 2) return;
 
         const color = BOAT_COLORS[idx % BOAT_COLORS.length];
-        const startTs = raceStartTs != null ? raceStartTs : new Date(cd.points[0].time).getTime();
+        const startTs = raceStartTs != null ? raceStartTs : cd.points[0]._ts;
         const TAIL_SEC = 18;
 
         // Build traveled points and tail points
@@ -937,7 +945,7 @@
         const tailPts = [];
 
         for (const pt of cd.points) {
-          const t = (new Date(pt.time).getTime() - startTs) / 1000;
+          const t = (pt._ts - startTs) / 1000;
           if (t <= currentTime) {
             traveled.push([pt.lat, pt.lon]);
             if (t > currentTime - TAIL_SEC) {
@@ -1016,11 +1024,11 @@
     function interpolatePosition(cd, relTime) {
       if (!cd.points || cd.points.length < 2) return null;
 
-      const startTs = raceStartTs != null ? raceStartTs : new Date(cd.points[0].time).getTime();
+      const startTs = raceStartTs != null ? raceStartTs : cd.points[0]._ts;
       const targetTs = startTs + relTime * 1000;
 
-      const firstTs = new Date(cd.points[0].time).getTime();
-      const lastTs = new Date(cd.points[cd.points.length - 1].time).getTime();
+      const firstTs = cd.points[0]._ts;
+      const lastTs = cd.points[cd.points.length - 1]._ts;
       if (targetTs <= firstTs) {
         return { lat: cd.points[0].lat, lng: cd.points[0].lon, heading: cd.points[0]._hdg || null, spd: cd.points[0].speed_kn || 0 };
       }
@@ -1031,8 +1039,8 @@
 
       // Find the two points the target time falls between
       for (let i = 0; i < cd.points.length - 1; i++) {
-        const t0 = new Date(cd.points[i].time).getTime();
-        const t1 = new Date(cd.points[i + 1].time).getTime();
+        const t0 = cd.points[i]._ts;
+        const t1 = cd.points[i + 1]._ts;
 
         if (targetTs >= t0 && targetTs <= t1) {
           const segDuration = t1 - t0;
@@ -1164,11 +1172,11 @@
         if (!cd || cd.points.length < 2) continue;
 
         // Map points to { timeOffset, speed_kn }
-        const startTs = raceStartTs != null ? raceStartTs : new Date(cd.points[0].time).getTime();
+        const startTs = raceStartTs != null ? raceStartTs : cd.points[0]._ts;
         const data = [];
         for (const pt of cd.points) {
           if (pt.speed_kn != null) {
-            const t = (new Date(pt.time).getTime() - startTs) / 1000;
+            const t = (pt._ts - startTs) / 1000;
             data.push({ t, v: pt.speed_kn });
           }
         }
@@ -1421,6 +1429,13 @@
       const rect = e.target.getBoundingClientRect();
       const frac = (e.clientX - rect.left - 52) / (rect.width - 52 - 16);
       seekTimeline(Math.max(0, Math.min(1, frac)) * 1000);
+    });
+
+    // Event delegation: de ranglijst wordt elk animatieframe herbouwd, dus
+    // inline onclick-attributen op de rijen zouden nooit een klik ontvangen.
+    document.addEventListener('click', (e) => {
+      const row = e.target.closest && e.target.closest('#leaderboard-section tr[data-track-idx]');
+      if (row) focusBoat(parseInt(row.dataset.trackIdx, 10));
     });
 
     // ── Fullscreen overlay ──────────────────────────────────────────────────
