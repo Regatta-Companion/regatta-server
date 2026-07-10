@@ -430,6 +430,7 @@
         allTracks = Array.isArray(raceTracks) ? raceTracks : [];
 
         marks = await apiGet('/races/' + raceId + '/marks') || [];
+        if (!Array.isArray(marks)) marks = [];
         course = SessionAnalysis.courseFromMarks(marks);
 
         currentClass = resolveDefaultClass(allTracks);
@@ -992,10 +993,28 @@
 
     function computeSmoothedHeadings(points, windowSize) {
       // Bereken heading voor elk punt als bearing over windowSize punten vooruit/achteruit.
-      // Stopt bij GPS-gaten (>5 sec) om te voorkomen dat de koers over een gat heen
-      // een verkeerde richting krijgt.
+      // Stopt bij GPS-gaten om te voorkomen dat de koers over een gat heen een
+      // verkeerde richting krijgt. De gat-drempel is adaptief: bij decimatie van
+      // lange opnames (bv. >2u47 bij ~2000 punten) ligt de mediane stapgrootte
+      // ver boven 1 s, waardoor een vaste 5 s-drempel élke stap als "gat" zou
+      // zien en alle headings op 0 zou zetten. We nemen daarom het grootste van
+      // 5 s en 3× de mediane dt (gemeten over de eerste 500 puntparen); bij
+      // normale 1 Hz-tracks blijft dat gewoon 5 s.
       const n = points.length;
-      const MAX_GAP = 5; // seconden
+      const dts = [];
+      for (let i = 1; i < n && dts.length < 500; i++) {
+        if (points[i].time && points[i - 1].time) {
+          const d = (new Date(points[i].time) - new Date(points[i - 1].time)) / 1000;
+          if (d > 0) dts.push(d);
+        }
+      }
+      let medianDt = 0;
+      if (dts.length) {
+        dts.sort((a, b) => a - b);
+        const mid = Math.floor(dts.length / 2);
+        medianDt = dts.length % 2 ? dts[mid] : (dts[mid - 1] + dts[mid]) / 2;
+      }
+      const MAX_GAP = Math.max(5, 3 * medianDt); // seconden
       for (let i = 0; i < n; i++) {
         let lo = i, hi = i;
         for (let s = 0; s < windowSize && lo > 0; s++) {
