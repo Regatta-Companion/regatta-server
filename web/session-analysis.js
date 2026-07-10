@@ -450,7 +450,12 @@
     return progress[progress.length - 1];
   }
 
-  // Gedeelde gap-tijdreeks over de overlappende periode van alle boten.
+  // Gedeelde gap-tijdreeks over de unie van alle tijdvensters (niet de overlap):
+  // een boot waarvan de tracker vroegtijdig uitvalt mag het venster voor de
+  // rest van de vloot niet inkorten. progressAt klemt buiten het eigen venster
+  // van een boot op diens eerste/laatste voortgang, dus zo'n boot blijft
+  // gewoon gerangschikt op de laatst bekende voortgang (zie spec: "blijft
+  // gerangschikt op laatste voortgang").
   function gapSeries(boats, stepS) {
     const valid = (boats || []).filter(b =>
       b.points && b.points.length >= 2 && b.points[0].time &&
@@ -459,8 +464,8 @@
 
     const starts = valid.map(b => new Date(b.points[0].time).getTime());
     const ends = valid.map(b => new Date(b.points[b.points.length - 1].time).getTime());
-    const t0 = Math.max.apply(null, starts);
-    const t1 = Math.min.apply(null, ends);
+    const t0 = Math.min.apply(null, starts);
+    const t1 = Math.max.apply(null, ends);
     if (t1 <= t0) return null;
 
     const times = [];

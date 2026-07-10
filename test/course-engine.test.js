@@ -118,10 +118,52 @@ test('gapSeries: achterligger heeft constant gat, leider is altijd boot A', () =
     `verwacht ~154 m, kreeg ${gs.boats[1].gap_m[mid]}`);
 });
 
-test('gapSeries: zonder overlap of zonder tijden geeft null', () => {
+test('gapSeries: disjuncte vensters spannen de unie; zonder tijden geeft null', () => {
+  // A vaart 18:00–18:01, B pas 19:00–19:01 — geen overlap, maar wel een
+  // geldige unie: het venster loopt van 18:00 tot 19:01.
   const a = { id: 1, points: [{ lat: 52, lon: 5, time: '2026-07-01T18:00:00Z' }, { lat: 52, lon: 5, time: '2026-07-01T18:01:00Z' }], progress_m: [0, 10] };
-  const b = { id: 2, points: [{ lat: 52, lon: 5, time: '2026-07-01T19:00:00Z' }, { lat: 52, lon: 5, time: '2026-07-01T19:01:00Z' }], progress_m: [0, 10] };
-  assert.strictEqual(SA.gapSeries([a, b], 5), null);
+  const b = { id: 2, points: [{ lat: 52, lon: 5, time: '2026-07-01T19:00:00Z' }, { lat: 52, lon: 5, time: '2026-07-01T19:01:00Z' }], progress_m: [0, 20] };
+  const gs = SA.gapSeries([a, b], 5);
+  assert.ok(gs !== null);
+  assert.strictEqual(gs.start_ts, new Date('2026-07-01T18:00:00Z').getTime());
+  assert.strictEqual(gs.times[gs.times.length - 1], new Date('2026-07-01T19:01:00Z').getTime());
+
+  const boatA = gs.boats.find(bo => bo.id === 1);
+  const boatB = gs.boats.find(bo => bo.id === 2);
+  // A ligt buiten haar eigen venster vanaf 18:01 → geklemd op haar laatste voortgang (10)
+  assert.strictEqual(boatA.progress_m[boatA.progress_m.length - 1], 10);
+  // B ligt vóór haar eigen venster (nog geen tijd verstreken) → geklemd op haar eerste voortgang (0)
+  assert.strictEqual(boatB.progress_m[0], 0);
+
   const noTime = { id: 3, points: [{ lat: 52, lon: 5 }, { lat: 52, lon: 5 }], progress_m: [0, 10] };
   assert.strictEqual(SA.gapSeries([a, noTime], 5), null);
+});
+
+test('gapSeries: uitvaller bevriest de vloot niet — venster loopt door tot de langste track', () => {
+  const course = SA.courseFromMarks(MARKS);
+  const ptsA = makeTrack([{ heading_deg: 0, seconds: 800, speed_kn: 5 }]);
+  // Boot B: identieke koers, maar de tracker valt uit na de eerste 300 s
+  const ptsB = makeTrack([{ heading_deg: 0, seconds: 800, speed_kn: 5 }]).slice(0, 300);
+  const progA = SA.computeProgress(ptsA, course).progress_m;
+  const progB = SA.computeProgress(ptsB, course).progress_m;
+
+  const gs = SA.gapSeries([
+    { id: 1, points: ptsA, progress_m: progA },
+    { id: 2, points: ptsB, progress_m: progB },
+  ], 5);
+
+  assert.ok(gs);
+  // Venster spant de unie: ~800 s / 5 s-stappen ≈ 161 samples
+  assert.ok(Math.abs(gs.times.length - (800 / 5 + 1)) <= 1,
+    `verwacht ~${800 / 5 + 1} samples, kreeg ${gs.times.length}`);
+
+  const boatB = gs.boats.find(b => b.id === 2);
+  // B's gat blijft toenemen ná 300 s (haar progressie is geklemd, A vaart door)
+  const idxAt300 = Math.round(300 / 5);
+  const gapAt300 = boatB.gap_m[idxAt300];
+  const gapAtEnd = boatB.gap_m[boatB.gap_m.length - 1];
+  assert.ok(gapAtEnd > gapAt300, `verwacht gat groter dan bij 300s (${gapAt300}), kreeg ${gapAtEnd}`);
+
+  // A blijft leider (index 0) gedurende de hele reeks
+  assert.ok(gs.leader_idx.every(i => i === 0));
 });
