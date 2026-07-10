@@ -7,6 +7,7 @@ const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
 const { authMiddleware, adminMiddleware, seriesAccessMiddleware, raceAccessMiddleware } = require('../middleware/auth');
 const { smoothPoints } = require('../lib/smooth');
+const { decimatePoints } = require('../lib/decimate');
 
 // ── Haversine afstand in meters ────────────────────────────────────────────
 function haversineM(lat1, lon1, lat2, lon2) {
@@ -194,8 +195,8 @@ function createRacesRouter(db, tracksDir) {
   // ── POST /:id/compare-data — parsed GPX punten voor playback/vergelijking ──
   router.post('/:id/compare-data', (req, res) => {
     const { track_ids } = req.body || {};
-    if (!Array.isArray(track_ids) || track_ids.length === 0 || track_ids.length > 4) {
-      return res.status(400).json({ error: 'track_ids moet een array zijn van 1–4 track IDs.' });
+    if (!Array.isArray(track_ids) || track_ids.length === 0 || track_ids.length > 20) {
+      return res.status(400).json({ error: 'track_ids moet een array zijn van 1–20 track IDs.' });
     }
 
     const parser = new XMLParser({
@@ -279,11 +280,15 @@ function createRacesRouter(db, tracksDir) {
         // Smooth GPS data: filtert ruis uit snelheid en positie
         const smoothed = smoothPoints(points);
 
+        // Bij veel boten de payload beperken: uitdunnen is veilig voor de
+        // rondingsdetectie (60 m-drempel, punt elke ~3-4 s)
+        const finalPoints = track_ids.length > 6 ? decimatePoints(smoothed, 2000) : smoothed;
+
         results.push({
           id: trackId,
           label: link.name || link.filename,
           color_index: i,
-          points: smoothed,
+          points: finalPoints,
           start_time: points[0].time || null,
           end_time: points[points.length - 1].time || null,
           point_count: points.length,
