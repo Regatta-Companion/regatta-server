@@ -88,3 +88,40 @@ test('computeProgress: voortgang vóór de startboei is negatief en klimt', () =
   assert.ok(progress_m[0] < -300, `verwacht < -300, kreeg ${progress_m[0]}`);
   assert.ok(progress_m[progress_m.length - 1] > progress_m[0]);
 });
+
+test('gapSeries: achterligger heeft constant gat, leider is altijd boot A', () => {
+  const course = SA.courseFromMarks(MARKS);
+  const ptsA = makeTrack([{ heading_deg: 0, seconds: 800, speed_kn: 5 }]);
+  // Boot B: zelfde route, maar de eerste 60 s stilliggend op de startpositie
+  const ptsB = makeTrack([
+    { heading_deg: 0, seconds: 60, speed_kn: 0 },
+    { heading_deg: 0, seconds: 740, speed_kn: 5 },
+  ]);
+  const progA = SA.computeProgress(ptsA, course).progress_m;
+  const progB = SA.computeProgress(ptsB, course).progress_m;
+
+  const gs = SA.gapSeries([
+    { id: 1, points: ptsA, progress_m: progA },
+    { id: 2, points: ptsB, progress_m: progB },
+  ], 5);
+
+  assert.ok(gs);
+  assert.strictEqual(gs.step_s, 5);
+  assert.strictEqual(gs.boats.length, 2);
+  assert.strictEqual(gs.times.length, gs.leader_idx.length);
+
+  // Halverwege: A leidt, B's achterstand ≈ 60 s × 2.57 m/s ≈ 154 m
+  const mid = Math.floor(gs.times.length / 2);
+  assert.strictEqual(gs.leader_idx[mid], 0);
+  assert.strictEqual(gs.boats[0].gap_m[mid], 0);
+  assert.ok(Math.abs(gs.boats[1].gap_m[mid] - 154) < 40,
+    `verwacht ~154 m, kreeg ${gs.boats[1].gap_m[mid]}`);
+});
+
+test('gapSeries: zonder overlap of zonder tijden geeft null', () => {
+  const a = { id: 1, points: [{ lat: 52, lon: 5, time: '2026-07-01T18:00:00Z' }, { lat: 52, lon: 5, time: '2026-07-01T18:01:00Z' }], progress_m: [0, 10] };
+  const b = { id: 2, points: [{ lat: 52, lon: 5, time: '2026-07-01T19:00:00Z' }, { lat: 52, lon: 5, time: '2026-07-01T19:01:00Z' }], progress_m: [0, 10] };
+  assert.strictEqual(SA.gapSeries([a, b], 5), null);
+  const noTime = { id: 3, points: [{ lat: 52, lon: 5 }, { lat: 52, lon: 5 }], progress_m: [0, 10] };
+  assert.strictEqual(SA.gapSeries([a, noTime], 5), null);
+});

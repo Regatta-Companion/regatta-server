@@ -434,5 +434,56 @@
     return { progress_m: progress, roundings };
   }
 
-  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession, courseFromMarks, computeVMG, computeProgress };
+  // Lineair geïnterpoleerde voortgang van één boot op een absoluut tijdstip (ms)
+  function progressAt(points, progress, ts) {
+    if (ts <= new Date(points[0].time).getTime()) return progress[0];
+    const lastTs = new Date(points[points.length - 1].time).getTime();
+    if (ts >= lastTs) return progress[progress.length - 1];
+    for (let i = 0; i < points.length - 1; i++) {
+      const t0 = new Date(points[i].time).getTime();
+      const t1 = new Date(points[i + 1].time).getTime();
+      if (ts >= t0 && ts <= t1) {
+        const f = t1 > t0 ? (ts - t0) / (t1 - t0) : 0;
+        return progress[i] + (progress[i + 1] - progress[i]) * f;
+      }
+    }
+    return progress[progress.length - 1];
+  }
+
+  // Gedeelde gap-tijdreeks over de overlappende periode van alle boten.
+  function gapSeries(boats, stepS) {
+    const valid = (boats || []).filter(b =>
+      b.points && b.points.length >= 2 && b.points[0].time &&
+      b.progress_m && b.progress_m.length === b.points.length);
+    if (valid.length < 2 || valid.length !== (boats || []).length) return null;
+
+    const starts = valid.map(b => new Date(b.points[0].time).getTime());
+    const ends = valid.map(b => new Date(b.points[b.points.length - 1].time).getTime());
+    const t0 = Math.max.apply(null, starts);
+    const t1 = Math.min.apply(null, ends);
+    if (t1 <= t0) return null;
+
+    const times = [];
+    for (let ts = t0; ts <= t1; ts += stepS * 1000) times.push(ts);
+
+    const out = valid.map(b => ({ id: b.id, progress_m: [], gap_m: [] }));
+    const leaderIdx = [];
+
+    for (const ts of times) {
+      let best = -Infinity, bestI = 0;
+      const vals = valid.map((b, i) => {
+        const v = progressAt(b.points, b.progress_m, ts);
+        if (v > best) { best = v; bestI = i; }
+        return v;
+      });
+      leaderIdx.push(bestI);
+      vals.forEach((v, i) => {
+        out[i].progress_m.push(Math.round(v));
+        out[i].gap_m.push(Math.round(best - v));
+      });
+    }
+    return { start_ts: t0, step_s: stepS, times, boats: out, leader_idx: leaderIdx };
+  }
+
+  return { toRad, toDeg, bearing, angleDiff, circularMean, haversineM, computeHeadings, estimateWind, twaCategory, segmentLegs, detectManeuvers, buildReport, analyzeSession, courseFromMarks, computeVMG, computeProgress, gapSeries };
 });
