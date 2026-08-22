@@ -7,6 +7,12 @@ Usage:
 Downloads GPX files for sailing activities and uploads them via the
 regatta-server track upload API. Skips activities already on the server.
 
+Haalt daarnaast de laps op (get_activity_splits) en stuurt het startschot
+mee als race_start_at. De Garmin-app zet op 0:00 een lapmarker, dus de
+tweede lap begint op het moment dat de race begon. Zonder marker of bij een
+onbekende JSON-vorm blijft race_start_at gewoon leeg — de track zelf is
+belangrijker dan de marker.
+
 Dependencies: pip install garminconnect
 """
 
@@ -43,7 +49,54 @@ def load_already_uploaded(api_base: str, token: str) -> set:
         return set()
 
 
-def upload_gpx(api_base: str, token: str, gpx_path: str) -> bool:
+def extract_race_start(splits) -> str:
+    """Haal het startschot uit de splits-JSON van Garmin Connect.
+
+    De vorm van dit antwoord is niet gedocumenteerd, dus we proberen de
+    waarschijnlijke sleutels en geven None terug als niets past. In dat geval
+    loggen we de werkelijke structuur naar stderr; de server bewaart die in
+    garmin_links.sync_stderr, zodat we na de eerste echte sync weten hoe het
+    antwoord eruitziet zonder te hoeven gokken.
+    """
+    if not isinstance(splits, dict):
+        return None
+
+    laps = None
+    for key in ("lapDTOs", "splits", "activitySplits", "lapDtos"):
+        value = splits.get(key)
+        if isinstance(value, list) and value:
+            laps = value
+            break
+
+    if laps is None:
+        print(
+            f"  ⚠ Geen laps herkend in splits-JSON; sleutels: {sorted(splits.keys())}",
+            file=sys.stderr,
+        )
+        return None
+
+    # De app zet één marker op 0:00, dus lap 1 is de aanloop en lap 2 begint
+    # op het startschot. Zonder tweede lap is er niet gemarkeerd.
+    if len(laps) < 2:
+        return None
+
+    second = laps[1]
+    if not isinstance(second, dict):
+        return None
+
+    for key in ("startTimeGMT", "startTimeGmt", "startTime"):
+        value = second.get(key)
+        if value:
+            return str(value)
+
+    print(
+        f"  ⚠ Lap zonder herkenbare starttijd; sleutels: {sorted(second.keys())}",
+        file=sys.stderr,
+    )
+    return None
+
+
+def upload_gpx(api_base: str, token: str, gpx_path: str, race_start_at: str = None) -> bool:
     """Upload een GPX bestand naar de regatta-server."""
     import io
 
@@ -54,6 +107,14 @@ def upload_gpx(api_base: str, token: str, gpx_path: str) -> bool:
         gpx_data = f.read()
 
     body = io.BytesIO()
+
+    # Tekstveld vóór het bestand, zodat multer het zeker in req.body heeft
+    if race_start_at:
+        body.write(f"--{boundary}\r\n".encode())
+        body.write(b'Content-Disposition: form-data; name="race_start_at"\r\n\r\n')
+        body.write(race_start_at.encode())
+        body.write(b"\r\n")
+
     body.write(f"--{boundary}\r\n".encode())
     body.write(
         f'Content-Disposition: form-data; name="gpx"; filename="{filename}"\r\n'.encode()
@@ -193,8 +254,21 @@ def main():
                     with open(gpx_path, "w") as f:
                         f.write(str(gpx_data))
 
+                # Laps ophalen voor het startschot. Mislukt dit, dan gaat de
+                # upload gewoon door zonder marker.
+                race_start_at = None
+                try:
+                    race_start_at = extract_race_start(
+                        client.get_activity_splits(activity_id)
+                    )
+                except Exception as e:
+                    print(f"  ⚠ Kon laps niet ophalen: {e}", file=sys.stderr)
+
+                if race_start_at:
+                    print(f"    ⚑ Startschot uit lapmarker: {race_start_at}")
+
                 # Upload to server
-                if upload_gpx(api_base, api_token, gpx_path):
+                if upload_gpx(api_base, api_token, gpx_path, race_start_at):
                     print(f"    ✓ Geüpload als {expected_filename}")
                     already_uploaded.add(expected_filename)
                     uploaded += 1

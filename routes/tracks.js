@@ -22,6 +22,15 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 
 // ── Parse GPX XML and extract track statistics ─────────────────────────────
+// Valideert het startschot dat de client meestuurt. Rommel wordt stil
+// genegeerd in plaats van de hele upload te laten mislukken: de track zelf
+// is waardevoller dan de marker.
+function parseRaceStartAt(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const d = new Date(String(raw));
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function parseGpx(xmlString) {
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -237,13 +246,17 @@ function createTracksRouter(db, tracksDir) {
           ? parseFloat(req.body.wind_direction_deg)
           : null;
 
+      // Startschot uit de lapmarker die de Garmin-app op 0:00 zet. Optioneel:
+      // telefoon-uploads en oudere horloge-versies sturen dit niet mee.
+      const raceStartAt = parseRaceStartAt(req.body.race_start_at);
+
       const result = db
         .prepare(
           `INSERT INTO tracks
             (user_id, filename, original_filename, name, recorded_at, duration_seconds,
              distance_meters, max_speed_knots, avg_speed_knots,
-             wind_direction_deg, point_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             wind_direction_deg, point_count, race_start_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           req.userId,
@@ -256,7 +269,8 @@ function createTracksRouter(db, tracksDir) {
           stats.maxSpeedKnots,
           stats.avgSpeedKnots,
           windDeg,
-          stats.pointCount
+          stats.pointCount,
+          raceStartAt
         );
 
       const trackId = result.lastInsertRowid;
@@ -331,7 +345,7 @@ function createTracksRouter(db, tracksDir) {
       .prepare(
         `SELECT id, filename, original_filename, name, recorded_at, duration_seconds,
                 distance_meters, max_speed_knots, avg_speed_knots, wind_direction_deg,
-                point_count, created_at
+                point_count, race_start_at, created_at
          FROM tracks
          WHERE user_id = ?
          ORDER BY recorded_at DESC`

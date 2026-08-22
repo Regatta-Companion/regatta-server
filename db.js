@@ -113,6 +113,9 @@ function initDb(dbPath) {
 
   // Migrations
   try { db.exec(`ALTER TABLE tracks ADD COLUMN original_filename TEXT`); } catch (_) {}
+  // Startschot uit de Garmin-lapmarker (ISO 8601). Null voor tracks zonder
+  // marker: alle bestaande tracks, en opnames van de telefoon-apps.
+  try { db.exec(`ALTER TABLE tracks ADD COLUMN race_start_at TEXT`); } catch (_) {}
   try { db.exec(`ALTER TABLE race_tracks ADD COLUMN series_class_id INTEGER REFERENCES series_classes(id) ON DELETE SET NULL`); } catch (_) {}
   try { db.exec(`ALTER TABLE users ADD COLUMN boat_type TEXT`); } catch (_) {}
   try { db.exec(`ALTER TABLE users ADD COLUMN boat_name TEXT`); } catch (_) {}

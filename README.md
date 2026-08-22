@@ -161,7 +161,7 @@ Sla deze op in een `.env` bestand in de projectmap. PM2 laadt `.env` automatisch
 | POST    | `/api/auth/register`                 | —         | Nieuw account aanmaken              |
 | POST    | `/api/auth/login`                    | —         | Inloggen, geeft JWT terug           |
 | GET     | `/api/tracks`                        | JWT       | Eigen tracks ophalen                |
-| POST    | `/api/tracks`                        | JWT       | GPX uploaden                        |
+| POST    | `/api/tracks`                        | JWT       | GPX uploaden (optioneel `race_start_at`) |
 | DELETE  | `/api/tracks/:id`                    | JWT       | Track verwijderen                   |
 | GET     | `/api/tracks/:id/gpx`                | JWT       | GPX-bestand downloaden              |
 | GET     | `/api/races`                         | JWT       | Alle wedstrijden ophalen            |
